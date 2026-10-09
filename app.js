@@ -315,6 +315,28 @@ function logout() {
   document.querySelectorAll(".pin-dot").forEach(d => d.classList.remove("filled"));
 }
 
+/**
+ * Strict production check: filters out any simulation, test or fake tickets
+ */
+function isValidProductionTicket(r) {
+  if (!r) return false;
+  if (r.tier_id === "deleted") return false;
+  const id = String(r.id || "");
+  const code = String(r.ticket_code || "");
+  const name = String(r.buyer_name || "").toLowerCase();
+  if (
+    id.startsWith("sim-") ||
+    code.includes("SIM") ||
+    code.includes("FAKE") ||
+    code === "QLB-26-VIP" ||
+    name.includes("bizarrap") ||
+    name.includes("gonzalo conde")
+  ) {
+    return false;
+  }
+  return true;
+}
+
 // ==========================================
 // SUPABASE DATA MANAGEMENT & PERSISTENCE
 // ==========================================
@@ -336,7 +358,7 @@ async function fetchReservationsFromSupabase() {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
     const data = await res.json();
-    state.reservations = data.filter(r => !r.id?.startsWith("sim-") && !r.ticket_code?.includes("SIM") && !r.ticket_code?.includes("FAKE"));
+    state.reservations = data.filter(isValidProductionTicket);
 
     // Cache locally for offline reliability
     localStorage.setItem("quilombo_cached_reservations", JSON.stringify(state.reservations));
@@ -359,7 +381,7 @@ function loadOfflineCache() {
   try {
     const cached = localStorage.getItem("quilombo_cached_reservations");
     if (cached) {
-      state.reservations = JSON.parse(cached).filter(r => !r.id?.startsWith("sim-") && !r.ticket_code?.includes("SIM") && !r.ticket_code?.includes("FAKE"));
+      state.reservations = JSON.parse(cached).filter(isValidProductionTicket);
       updateMetricsAndUI();
     }
   } catch (e) {
@@ -553,7 +575,7 @@ async function undoCheckin(ticket) {
 // UI METRICS & LISTS RENDERING
 // ==========================================
 function updateMetricsAndUI() {
-  const activeTickets = state.reservations.filter(r => r.tier_id !== "deleted");
+  const activeTickets = state.reservations.filter(isValidProductionTicket);
 
   let totalTickets = activeTickets.length;
   let totalHeadcount = 0;
@@ -678,7 +700,7 @@ function renderAttendeesList() {
   const filter = state.activeFilter;
 
   const filtered = state.reservations.filter(r => {
-    if (r.tier_id === "deleted") return false;
+    if (!isValidProductionTicket(r)) return false;
 
     const checkin = getCheckinData(r);
     const isPaid = !!r.is_paid;
@@ -814,7 +836,7 @@ function initSearch() {
     const cleanDigits = query.replace(/[^0-9]/g, "");
     
     const matches = state.reservations.filter(r => {
-      if (r.tier_id === "deleted") return false;
+      if (!isValidProductionTicket(r)) return false;
 
       const code = normalizeSearch(r.ticket_code).replace(/-/g, "");
       const name = normalizeSearch(r.buyer_name);
@@ -1520,6 +1542,12 @@ function initNavigation() {
   // Header action buttons
   document.getElementById("btnRefreshData")?.addEventListener("click", () => {
     sounds.playSuccess();
+    try {
+      localStorage.removeItem("quilombo_cached_reservations");
+      localStorage.removeItem("quilombo_simulated_tickets");
+      state.reservations = state.reservations.filter(isValidProductionTicket);
+      updateMetricsAndUI();
+    } catch (e) {}
     showToast("Actualizando datos desde Supabase...", "info");
     fetchReservationsFromSupabase();
   });
@@ -1573,10 +1601,15 @@ function bootstrapApp() {
   // Purge any lingering simulated/test tickets from browser localStorage
   try {
     localStorage.removeItem("quilombo_simulated_tickets");
+    const cached = localStorage.getItem("quilombo_cached_reservations");
+    if (cached) {
+      const cleaned = JSON.parse(cached).filter(isValidProductionTicket);
+      localStorage.setItem("quilombo_cached_reservations", JSON.stringify(cleaned));
+    }
     const localCheckins = JSON.parse(localStorage.getItem("quilombo_local_checkins") || "{}");
     let modified = false;
     for (const k of Object.keys(localCheckins)) {
-      if (k.startsWith("sim-") || k.includes("FAKE") || k.includes("SIM")) {
+      if (k.startsWith("sim-") || k.includes("FAKE") || k.includes("SIM") || k === "sim-6" || k.includes("QLB-26-VIP")) {
         delete localCheckins[k];
         modified = true;
       }
