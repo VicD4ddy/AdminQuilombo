@@ -1,0 +1,21 @@
+{
+  "name": "El Quilombo • Control de Acceso",
+  "short_name": "Acceso Quilombo",
+  "description": "Escáner QR y control de acceso al evento El Quilombo en Rock & Riff",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#080518",
+  "theme_color": "#8734d8",
+  "icons": [
+    {
+      "src": "./favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

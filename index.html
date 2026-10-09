@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#080518">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Acceso Quilombo">
+  <title>El Quilombo • Control de Acceso & Escáner QR</title>
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./app.css">
+  <!-- Local high performance QR Scanner library -->
+  <script src="./html5-qrcode.min.js"></script>
+  <!-- Local high performance QR Generator library for simulations -->
+  <script src="./qrious.min.js"></script>
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid-overlay" aria-hidden="true"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- =========================================
+       PIN AUTHENTICATION OVERLAY
+       ========================================= -->
+  <div id="authOverlay" class="auth-overlay">
+    <div class="auth-card">
+      <img src="./logo.png" alt="El Quilombo" class="auth-logo">
+      <h1 class="auth-title">Control de Acceso</h1>
+      <div class="auth-badge">⚡ Staff Rock &amp; Riff 🇦🇷</div>
+      <p class="auth-desc">Ingresá el PIN de organizador para activar el escáner de entradas</p>
+      
+      <div class="pin-display" id="pinDisplay">
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+      </div>
+
+      <div id="pinError" class="pin-error"></div>
+
+      <div class="pin-pad-grid">
+        <button type="button" class="pin-btn" data-key="1">1</button>
+        <button type="button" class="pin-btn" data-key="2">2</button>
+        <button type="button" class="pin-btn" data-key="3">3</button>
+        <button type="button" class="pin-btn" data-key="4">4</button>
+        <button type="button" class="pin-btn" data-key="5">5</button>
+        <button type="button" class="pin-btn" data-key="6">6</button>
+        <button type="button" class="pin-btn" data-key="7">7</button>
+        <button type="button" class="pin-btn" data-key="8">8</button>
+        <button type="button" class="pin-btn" data-key="9">9</button>
+        <button type="button" class="pin-btn action-btn" id="btnPinClear">BORRAR</button>
+        <button type="button" class="pin-btn" data-key="0">0</button>
+        <button type="button" class="pin-btn action-btn" id="btnPinBackspace">⌫</button>
+      </div>
+
+      <button type="button" id="btnQuickLogin" class="btn-pill" style="margin-top: 0.5rem; opacity: 0.75; font-size: 0.7rem;">
+        ⚡ Acceso Rápido (Staff)
+      </button>
+    </div>
+  </div>
+
+  <!-- =========================================
+       MAIN APPLICATION HEADER
+       ========================================= -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <img src="./logo.png" alt="El Quilombo Logo" class="header-logo">
+        <div class="brand-text">
+          <div class="brand-title">
+            QUILOMBO <span class="brand-tag">PUERTA</span>
+          </div>
+          <span class="brand-sub">Rock &amp; Riff</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="syncStatus" class="status-pill" title="Estado de sincronización">
+          <span class="dot-pulse"></span>
+          <span id="syncStatusText" class="sync-text-label">En línea</span>
+        </div>
+        <button type="button" class="btn-icon" id="btnToggleSound" title="Silenciar / Activar sonido" aria-label="Sonido">
+          🔊
+        </button>
+        <button type="button" class="btn-icon" id="btnRefreshData" title="Recargar base de datos" aria-label="Recargar">
+          🔄
+        </button>
+        <button type="button" class="btn-icon" id="btnLogout" title="Cerrar sesión" aria-label="Cerrar sesión">
+          🚪
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================
+       METRICS / COUNTERS STRIP (COMPACT RIBBON)
+       ========================================= -->
+  <section class="metrics-strip">
+    <div class="metrics-container">
+      <div class="metric-card highlight">
+        <span class="metric-label">En Sala</span>
+        <div class="metric-val" id="metricInsideCount">0</div>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Total Boletos</span>
+        <div class="metric-val" id="metricTotalCount">0</div>
+      </div>
+      <div class="metric-card warning">
+        <span class="metric-label">Faltan</span>
+        <div class="metric-val" id="metricRemainingCount">0</div>
+      </div>
+      <div class="metric-card success">
+        <span class="metric-label">Cobrado</span>
+        <div class="metric-val" id="metricCashCount">$0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================
+       MAIN TABS CONTAINER
+       ========================================= -->
+  <main class="main-content">
+    
+    <!-- =======================================
+         TAB 1: ESCÁNER QR & BÚSQUEDA RÁPIDA
+         ======================================= -->
+    <div id="tabScanner" class="tab-pane active">
+      
+      <!-- Instant Search Bar -->
+      <div class="search-section">
+        <div class="search-box">
+          <input 
+            type="text" 
+            id="searchInput" 
+            class="search-input" 
+            placeholder="🔍 Buscar Código (ej: 6260), Cédula o Nombre..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button type="button" id="searchClearBtn" class="search-clear-btn" aria-label="Limpiar búsqueda">✕</button>
+        </div>
+        <div id="searchResultsDropdown" class="search-results-dropdown"></div>
+      </div>
+
+      <!-- Live Camera Scanner Card -->
+      <div class="scanner-card">
+        <div class="scanner-viewport-wrap">
+          <div id="qr-reader"></div>
+          
+          <!-- Floating HUD Top Toolbar -->
+          <div class="scanner-hud-topbar">
+            <button type="button" id="btnSwitchCamera" class="hud-pill-btn" title="Cambiar cámara">
+              <span>🔄</span> <span>Cámara</span>
+            </button>
+            <div class="scanner-live-pill">
+              <span class="dot-pulse"></span>
+              <span>ESCANEANDO</span>
+            </div>
+            <button type="button" id="btnToggleTorch" class="hud-pill-btn" title="Encender Linterna / Flash">
+              <span>🔦</span> <span>Flash</span>
+            </button>
+          </div>
+
+          <!-- Animated HUD Center Target Overlay -->
+          <div class="scanner-hud-overlay">
+            <div class="scanner-target-box">
+              <span class="reticle-corner tl"></span>
+              <span class="reticle-corner tr"></span>
+              <span class="reticle-corner bl"></span>
+              <span class="reticle-corner br"></span>
+              <div class="scanner-laser"></div>
+            </div>
+            <div class="scanner-instruction">
+              <span>🎯</span>
+              <span>Alineá el código QR del boleto</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scanner Bottom Bar -->
+        <div class="scanner-footer">
+          <button type="button" id="btnToggleCamera" class="btn-pill active" style="flex: 1; justify-content: center;">
+            ⏸️ Pausar Cámara
+          </button>
+          <label class="btn-pill" style="cursor: pointer; flex: 1; justify-content: center;">
+            📁 Subir Foto / Captura
+            <input type="file" id="fileScanInput" accept="image/*" style="display: none;">
+          </label>
+        </div>
+      </div>
+
+      <!-- Recent Check-ins List -->
+      <div class="recent-checkins-wrap">
+        <div class="section-title-wrap">
+          <h2 class="section-h2">
+            <span>⚡</span>
+            <span>ÚLTIMOS INGRESOS EN PUERTA</span>
+          </h2>
+          <span id="recentEntriesCount" style="font-size: 0.72rem; color: var(--text-subtle); font-weight: 700;">
+            0 registros
+          </span>
+        </div>
+        <div id="recentEntriesList" class="recent-entries-list">
+          <!-- Populated by JavaScript -->
+          <div style="text-align: center; padding: 1.5rem; color: var(--text-subtle); font-size: 0.8rem;">
+            Aún no se han registrado ingresos en esta sesión.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- =======================================
+         TAB 2: LISTA GENERAL DE ASISTENTES
+         ======================================= -->
+    <div id="tabAttendees" class="tab-pane">
+      <div class="list-filter-bar">
+        <button type="button" class="filter-chip active" data-filter="all">Todos (<span id="countFilterAll">0</span>)</button>
+        <button type="button" class="filter-chip" data-filter="inside">🟢 En Sala (<span id="countFilterInside">0</span>)</button>
+        <button type="button" class="filter-chip" data-filter="pending">⏳ Faltan (<span id="countFilterPending">0</span>)</button>
+        <button type="button" class="filter-chip" data-filter="door_pay">💵 Pago en Puerta (<span id="countFilterDoorPay">0</span>)</button>
+        <button type="button" class="filter-chip" data-filter="paid">✅ Pagados (<span id="countFilterPaid">0</span>)</button>
+      </div>
+
+      <div class="search-section" style="margin-bottom: 0.75rem;">
+        <input 
+          type="text" 
+          id="attendeesListSearch" 
+          class="search-input" 
+          placeholder="🔎 Filtrar asistentes por nombre, cédula o código..."
+          style="padding: 0.75rem 1rem; font-size: 0.9rem;"
+        >
+      </div>
+
+      <div class="attendees-table-wrap">
+        <div id="attendeesListContainer">
+          <!-- Populated by JavaScript -->
+          <div style="text-align: center; padding: 2rem; color: var(--text-subtle);">
+            Cargando asistentes...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =======================================
+         TAB 3: TAQUILLA DIRECTA & CONFIGURACIÓN
+         ======================================= -->
+    <div id="tabTaquilla" class="tab-pane">
+      <div class="scanner-card" style="padding: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem;">
+          <span style="font-size: 1.5rem;">🎟️</span>
+          <div>
+            <h2 style="font-family: var(--font-title); font-size: 1.15rem; font-weight: 800; color: #fff;">
+              VENTA / INGRESO DIRECTO EN PUERTA
+            </h2>
+            <p style="font-size: 0.78rem; color: var(--text-subtle);">
+              Registrá una entrada para quien compre directamente en efectivo en taquilla
+            </p>
+          </div>
+        </div>
+
+        <form id="expressCheckinForm" style="display: flex; flex-direction: column; gap: 0.85rem;">
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">
+              Nombre y Apellido *
+            </label>
+            <input 
+              type="text" 
+              id="expressName" 
+              class="search-input" 
+              placeholder="Ej: Marcos Rodríguez" 
+              required
+              style="padding: 0.7rem 1rem; font-size: 0.95rem;"
+            >
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">
+                Cédula / DNI *
+              </label>
+              <input 
+                type="text" 
+                id="expressDni" 
+                class="search-input" 
+                placeholder="V-28.123.456" 
+                required
+                style="padding: 0.7rem 1rem; font-size: 0.95rem;"
+              >
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">
+                Cantidad de Personas
+              </label>
+              <select 
+                id="expressQty" 
+                class="search-input" 
+                style="padding: 0.7rem 1rem; font-size: 0.95rem; cursor: pointer;"
+              >
+                <option value="1">1 Persona ($15 USD)</option>
+                <option value="2">2 Personas ($30 USD)</option>
+                <option value="3">3 Personas ($45 USD)</option>
+                <option value="4">4 Personas ($60 USD)</option>
+                <option value="5">5 Personas ($75 USD)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">
+                Método de Pago
+              </label>
+              <select 
+                id="expressPayment" 
+                class="search-input" 
+                style="padding: 0.7rem 1rem; font-size: 0.95rem; cursor: pointer;"
+              >
+                <option value="Efectivo en Puerta">💵 Efectivo USD / Bs</option>
+                <option value="Pago Móvil en Puerta">📱 Pago Móvil</option>
+                <option value="Zelle">💵 Zelle</option>
+                <option value="Cortesía / Invitado">⭐ Cortesía / Invitado</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">
+                WhatsApp (Opcional)
+              </label>
+              <input 
+                type="tel" 
+                id="expressPhone" 
+                class="search-input" 
+                placeholder="0412 1234567"
+                style="padding: 0.7rem 1rem; font-size: 0.95rem;"
+              >
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            class="btn-action-primary" 
+            style="margin-top: 0.5rem; width: 100%;"
+          >
+            <span>⚡ COBRAR Y DAR ACCESO INMEDIATO</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Information Card -->
+      <div class="scanner-card" style="padding: 1.25rem; margin-top: 1rem;">
+        <h3 style="font-family: var(--font-title); font-size: 0.95rem; font-weight: 800; color: #fff; margin-bottom: 0.5rem;">
+          ℹ️ Información del Evento
+        </h3>
+        <ul style="font-size: 0.8rem; color: var(--text-muted); list-style: none; display: flex; flex-direction: column; gap: 0.35rem;">
+          <li>📍 <strong>Lugar:</strong> Rock &amp; Riff (antiguo Óleo Gastrobar, La Viña)</li>
+          <li>📅 <strong>Fecha:</strong> Hoy Viernes 09 de Octubre • 8:00 PM</li>
+          <li>🔞 <strong>Edad de Ingreso:</strong> Mayores de +15 (menores acompañados)</li>
+          <li>💵 <strong>Precio en Puerta:</strong> $15 USD (Tasa BCV oficial)</li>
+          <li>🔑 <strong>PIN de Administrador:</strong> 5401385</li>
+        </ul>
+      </div>
+      </div>
+    </div>
+
+    <!-- =======================================
+         TAB 4: SIMULADOR DE PRUEBAS & ESCENARIOS
+         ======================================= -->
+    <div id="tabSimulator" class="tab-pane">
+      <div class="scanner-card" style="padding: 1.25rem; margin-bottom: 1.25rem; border-color: var(--border-glow-cyan);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.6rem;">🧪</span>
+            <div>
+              <h2 style="font-family: var(--font-title); font-size: 1.15rem; font-weight: 800; color: #fff;">
+                SIMULADOR DE ESCANEO EN VIVO
+              </h2>
+              <p style="font-size: 0.76rem; color: var(--text-muted);">
+                Probá el escáner con estos 5 escenarios antes de llegar al evento.
+              </p>
+            </div>
+          </div>
+          <button type="button" id="btnResetSimulations" class="btn-pill" style="border-color: var(--neon-cyan); color: var(--neon-cyan);">
+            🔄 Reiniciar Pruebas
+          </button>
+        </div>
+        <p style="font-size: 0.74rem; color: var(--text-subtle); margin-top: 0.65rem; background: rgba(0, 229, 255, 0.05); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(0, 229, 255, 0.15);">
+          💡 <strong>Cómo probar:</strong> Podés apuntar la cámara de tu teléfono móvil a cualquiera de estos códigos QR generados en pantalla, o presionar el botón <strong>"⚡ Probar Escaneo Directo"</strong> para simular la lectura inmediata en el mismo dispositivo.
+        </p>
+      </div>
+
+      <!-- Simulation Scenarios Container -->
+      <div id="simulationCardsContainer" style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Injected dynamically by JavaScript with live QR canvases -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- =========================================
+       BOTTOM DOCK NAVIGATION
+       ========================================= -->
+  <nav class="app-nav">
+    <div class="nav-container">
+      <button type="button" class="nav-tab-btn active" data-tab="tabScanner">
+        <span class="tab-icon">📷</span>
+        <span>Escáner</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="tabAttendees">
+        <span class="tab-icon">👥</span>
+        <span>Asistentes</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="tabTaquilla">
+        <span class="tab-icon">🎟️</span>
+        <span>Taquilla</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="tabSimulator">
+        <span class="tab-icon">🧪</span>
+        <span>Simulador</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- =========================================
+       TICKET VERIFICATION MODAL
+       ========================================= -->
+  <div id="ticketModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="sheet-drag-handle" aria-hidden="true"></div>
+      <!-- Status Banner -->
+      <div id="modalStatusBanner" class="modal-status-banner status-ok">
+        <span id="modalStatusIcon">✅</span>
+        <span id="modalStatusTitle">ACCESO PERMITIDO</span>
+        <button type="button" id="modalCloseBtn" class="modal-close-x" aria-label="Cerrar modal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        
+        <!-- Large Quantity Box -->
+        <div class="qty-highlight-box" id="modalQtyBox">
+          <div class="qty-highlight-num" id="modalQuantity">1 PERSONA</div>
+          <div class="qty-highlight-desc" id="modalTierName">PASE GENERAL OFICIAL</div>
+        </div>
+
+        <!-- Ticket Details -->
+        <div class="detail-rows">
+          <div class="detail-row">
+            <span class="detail-lbl">Código Boleto:</span>
+            <span class="detail-val code" id="modalTicketCode">#QLB-26-0000</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-lbl">Titular:</span>
+            <span class="detail-val" id="modalBuyerName">Alfredo Mercado</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-lbl">Cédula / DNI:</span>
+            <span class="detail-val" id="modalBuyerDni">V-41.279.091</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-lbl">WhatsApp:</span>
+            <span class="detail-val" id="modalBuyerPhone">0412 1234567</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-lbl">Estado de Pago:</span>
+            <span class="detail-val" id="modalPaymentStatus">Pagado ✅</span>
+          </div>
+          <div class="detail-row" id="modalAmountRow">
+            <span class="detail-lbl">Monto Total:</span>
+            <span class="detail-val" id="modalTotalAmount">$15 USD (Ref: Bs. 14.616,30)</span>
+          </div>
+          <div class="detail-row" id="modalCheckinTimeRow" style="display: none;">
+            <span class="detail-lbl">Ingresó a las:</span>
+            <span class="detail-val" id="modalCheckinTime" style="color: var(--neon-cyan);">--:--</span>
+          </div>
+          <div class="detail-row" id="modalArtistRow">
+            <span class="detail-lbl">Tema pedido:</span>
+            <span class="detail-val" id="modalFavoriteArtist" style="font-size: 0.78rem;">Milo J</span>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="modal-actions" id="modalActionsContainer">
+          <!-- Injected dynamically based on ticket state -->
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
