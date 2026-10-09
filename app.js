@@ -1308,23 +1308,40 @@ function initExpressCheckin() {
   const form = document.getElementById("expressCheckinForm");
   if (!form) return;
 
+  const qtySelect = document.getElementById("expressQty");
   const paymentSelect = document.getElementById("expressPayment");
   const submitBtn = form.querySelector("button[type='submit']");
 
-  paymentSelect?.addEventListener("change", () => {
-    const isVIP = paymentSelect.value.includes("Cortesía") || paymentSelect.value.includes("Invitado");
-    if (isVIP) {
-      if (submitBtn) {
+  function refreshFormUI() {
+    const isVIP = paymentSelect?.value.includes("Cortesía") || paymentSelect?.value.includes("Invitado");
+    const qty = parseInt(qtySelect?.value) || 1;
+    const currentSelected = qtySelect?.value || "1";
+
+    if (qtySelect) {
+      qtySelect.innerHTML = Array.from({ length: 10 }, (_, i) => {
+        const n = i + 1;
+        const pLabel = n === 1 ? "1 Persona" : `${n} Personas`;
+        const costLabel = isVIP ? "(Cortesía $0)" : `($${n * CONFIG.TICKET_PRICE_USD} USD)`;
+        return `<option value="${n}">${pLabel} ${costLabel}</option>`;
+      }).join("");
+      qtySelect.value = currentSelected;
+    }
+
+    if (submitBtn) {
+      if (isVIP) {
         submitBtn.className = "btn-action-vip";
-        submitBtn.innerHTML = "<span>⭐ REGISTRAR INVITADO Y DAR ACCESO ($0)</span>";
-      }
-    } else {
-      if (submitBtn) {
+        const personText = qty === 1 ? "INVITADO" : `${qty} INVITADOS`;
+        submitBtn.innerHTML = `<span>⭐ REGISTRAR ${personText} Y DAR ACCESO ($0)</span>`;
+      } else {
         submitBtn.className = "btn-action-primary";
-        submitBtn.innerHTML = "<span>⚡ COBRAR Y DAR ACCESO INMEDIATO</span>";
+        const total = qty * CONFIG.TICKET_PRICE_USD;
+        submitBtn.innerHTML = `<span>⚡ COBRAR $${total} USD Y DAR ACCESO (${qty}p)</span>`;
       }
     }
-  });
+  }
+
+  paymentSelect?.addEventListener("change", refreshFormUI);
+  qtySelect?.addEventListener("change", refreshFormUI);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
