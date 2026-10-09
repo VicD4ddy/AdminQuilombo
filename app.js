@@ -396,6 +396,17 @@ function formatBs(amount) {
 }
 
 /**
+ * Normalizes text for accent-insensitive and lowercase search comparisons
+ */
+function normalizeSearch(str) {
+  return (str || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
  * Parses check-in details from reservation record.
  * A check-in is encoded in `meme_sticker_used` as `${originalMeme}|CHECKED_IN:${ISO_TIMESTAMP}:${CASHIER}`
  * or tracked in localStorage `quilombo_local_checkins`.
@@ -662,7 +673,8 @@ function renderAttendeesList() {
   const container = document.getElementById("attendeesListContainer");
   if (!container) return;
 
-  const searchQuery = (document.getElementById("attendeesListSearch")?.value || "").toLowerCase().trim();
+  const rawSearch = (document.getElementById("attendeesListSearch")?.value || "").trim();
+  const searchQuery = normalizeSearch(rawSearch);
   const filter = state.activeFilter;
 
   const filtered = state.reservations.filter(r => {
@@ -680,11 +692,12 @@ function renderAttendeesList() {
     if (filter === "paid" && !isPaid) return false;
 
     if (searchQuery) {
-      const matchName = (r.buyer_name || "").toLowerCase().includes(searchQuery);
-      const matchDni = (r.buyer_dni || "").toLowerCase().includes(searchQuery);
-      const matchCode = (r.ticket_code || "").toLowerCase().includes(searchQuery);
-      const matchPhone = (r.buyer_phone || "").includes(searchQuery);
-      if (!matchName && !matchDni && !matchCode && !matchPhone) return false;
+      const matchName = normalizeSearch(r.buyer_name).includes(searchQuery);
+      const matchDni = normalizeSearch(r.buyer_dni).replace(/[\.\-]/g, "").includes(searchQuery.replace(/[\.\-]/g, ""));
+      const matchCode = normalizeSearch(r.ticket_code).replace(/[\-]/g, "").includes(searchQuery.replace(/[\-]/g, ""));
+      const matchPhone = (r.buyer_phone || "").replace(/[^0-9]/g, "").includes(searchQuery.replace(/[^0-9]/g, ""));
+      const matchArtist = normalizeSearch(r.favorite_artist).includes(searchQuery);
+      if (!matchName && !matchDni && !matchCode && !matchPhone && !matchArtist) return false;
     }
 
     return true;
@@ -796,20 +809,24 @@ function initSearch() {
   });
 
   function performSearch(query) {
-    const cleanQuery = query.replace("#", "").replace(/-/g, "").toLowerCase();
+    const normQuery = normalizeSearch(query);
+    const cleanQuery = normQuery.replace("#", "").replace(/-/g, "");
+    const cleanDigits = query.replace(/[^0-9]/g, "");
     
     const matches = state.reservations.filter(r => {
       if (r.tier_id === "deleted") return false;
 
-      const code = (r.ticket_code || "").toLowerCase().replace(/-/g, "");
-      const name = (r.buyer_name || "").toLowerCase();
-      const dni = (r.buyer_dni || "").toLowerCase().replace(/\./g, "").replace(/-/g, "");
+      const code = normalizeSearch(r.ticket_code).replace(/-/g, "");
+      const name = normalizeSearch(r.buyer_name);
+      const dni = normalizeSearch(r.buyer_dni).replace(/\./g, "").replace(/-/g, "");
       const phone = (r.buyer_phone || "").replace(/[^0-9]/g, "");
+      const artist = normalizeSearch(r.favorite_artist);
 
       return code.includes(cleanQuery) || 
-             name.includes(query) || 
+             name.includes(normQuery) || 
              dni.includes(cleanQuery) || 
-             phone.includes(cleanQuery);
+             (cleanDigits.length >= 4 && phone.includes(cleanDigits)) ||
+             artist.includes(normQuery);
     }).slice(0, 8);
 
     if (matches.length === 0) {
