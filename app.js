@@ -429,6 +429,152 @@ function normalizeSearch(str) {
 }
 
 /**
+ * Extracts only digit characters from a string
+ */
+function cleanDigits(str) {
+  return (str || "").replace(/[^0-9]/g, "");
+}
+
+/**
+ * Normalizes a Venezuelan phone number to compare local format and international format:
+ * e.g. "+58 424-3358302" -> "4243358302"
+ * "04243358302" -> "4243358302"
+ */
+function normalizePhone(str) {
+  let d = cleanDigits(str);
+  if (d.startsWith("58")) d = d.slice(2);
+  if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
+/**
+ * Creates an accent-insensitive regex pattern from a search token
+ */
+function makeAccentRegex(token) {
+  return (token || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/a/gi, "[aáàäâAÁÀÄÂ]")
+    .replace(/e/gi, "[eéèëêEÉÈËÊ]")
+    .replace(/i/gi, "[iíìïîIÍÌÏÎ]")
+    .replace(/o/gi, "[oóòöôOÓÒÖÔ]")
+    .replace(/u/gi, "[uúùüûUÚÙÜÛ]")
+    .replace(/n/gi, "[nñNÑ]");
+}
+
+/**
+ * Highlights matched query tokens inside a string with <mark class="search-highlight">
+ */
+function highlightTokens(text, rawQuery) {
+  if (!text) return "";
+  const escaped = escapeHtml(text);
+  if (!rawQuery) return escaped;
+
+  const rawTokens = (rawQuery || "").trim().split(/\s+/).filter(Boolean);
+  const stopWords = new Set(["de", "el", "la", "en", "al", "los", "las", "un", "una", "y"]);
+  const tokens = (rawTokens.length > 1 && rawTokens.some(t => !stopWords.has(t.toLowerCase())))
+    ? rawTokens.filter(t => !stopWords.has(t.toLowerCase()))
+    : rawTokens;
+
+  if (tokens.length === 0) return escaped;
+
+  const patterns = tokens
+    .map(t => t.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(t => t.length > 0)
+    .map(t => makeAccentRegex(t));
+
+  if (patterns.length === 0) return escaped;
+
+  try {
+    const regex = new RegExp("(" + patterns.join("|") + ")", "gi");
+    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>');
+  } catch (e) {
+    return escaped;
+  }
+}
+
+/**
+ * Multi-token smart matching across buyer name, ticket code, DNI, phone, notes/artist, and tier
+ */
+function matchesTicket(r, query) {
+  const raw = (query || "").trim();
+  if (!raw) return true;
+
+  const normQuery = normalizeSearch(raw);
+  const rawTokens = normQuery.split(/\s+/).filter(Boolean);
+  if (rawTokens.length === 0) return true;
+
+  const stopWords = new Set(["de", "el", "la", "en", "al", "los", "las", "un", "una", "y"]);
+  const tokens = (rawTokens.length > 1 && rawTokens.some(t => !stopWords.has(t)))
+    ? rawTokens.filter(t => !stopWords.has(t))
+    : rawTokens;
+
+  // Normalized ticket fields
+  const normName = normalizeSearch(r.buyer_name);
+  const rawCode = normalizeSearch(r.ticket_code);
+  const cleanCode = rawCode.replace(/[^a-z0-9]/g, "");
+  const cleanCodeNoMiddle = cleanCode.replace(/^qlb26/, "qlb");
+  const codeDigits = cleanDigits(r.ticket_code);
+  const normDni = normalizeSearch(r.buyer_dni);
+  const dniDigits = cleanDigits(r.buyer_dni);
+  const normPhone = normalizePhone(r.buyer_phone);
+  const normArtist = normalizeSearch(r.favorite_artist);
+  const normTier = normalizeSearch(r.tier_name);
+  const normPayMethod = normalizeSearch(r.payment_method);
+  const virtualWords = "boleto boletos entrada entradas ticket tickets pase pases acceso cortesia vip general puerta";
+
+  return tokens.every(token => {
+    const cleanToken = token.replace(/[^a-z0-9]/g, "");
+    const tokenDigits = cleanDigits(token);
+    const tokenPhone = normalizePhone(token);
+
+    if (normName.includes(token)) return true;
+    if (rawCode.includes(token) || (cleanToken && (cleanCode.includes(cleanToken) || cleanCodeNoMiddle.includes(cleanToken)))) return true;
+    if (tokenDigits && tokenDigits.length >= 2 && codeDigits.includes(tokenDigits)) return true;
+    if (normDni.includes(token)) return true;
+    if (tokenDigits && tokenDigits.length >= 3 && dniDigits.includes(tokenDigits)) return true;
+    if (tokenPhone && tokenPhone.length >= 4 && normPhone.includes(tokenPhone)) return true;
+    if (normArtist.includes(token)) return true;
+    if (normTier.includes(token)) return true;
+    if (normPayMethod.includes(token)) return true;
+    if (virtualWords.includes(token)) return true;
+
+    return false;
+  });
+}
+
+/**
+ * Calculates a search relevance score to place the most exact matches at the top
+ */
+function scoreTicketRelevance(r, rawQuery) {
+  const normQuery = normalizeSearch(rawQuery);
+  const cleanQ = normQuery.replace(/[^a-z0-9]/g, "");
+  const normName = normalizeSearch(r.buyer_name);
+  const rawCode = normalizeSearch(r.ticket_code);
+  const cleanCode = rawCode.replace(/[^a-z0-9]/g, "");
+  const cleanDni = cleanDigits(r.buyer_dni);
+  const queryDigits = cleanDigits(rawQuery);
+
+  let score = 0;
+
+  // Exact code match or suffix (e.g. typing 1002 or 6260)
+  if (rawCode === normQuery || cleanCode === cleanQ) score += 2000;
+  else if (queryDigits && cleanCode.endsWith(queryDigits)) score += 1500;
+  else if (cleanCode.includes(cleanQ)) score += 800;
+
+  // Name starts with query
+  if (normName.startsWith(normQuery)) score += 1200;
+  else if (normName.includes(normQuery)) score += 600;
+
+  // Exact DNI
+  if (cleanDni && queryDigits && cleanDni === queryDigits) score += 1000;
+  else if (cleanDni && queryDigits && cleanDni.includes(queryDigits)) score += 400;
+
+  return score;
+}
+
+/**
  * Parses check-in details from reservation record.
  * A check-in is encoded in `meme_sticker_used` as `${originalMeme}|CHECKED_IN:${ISO_TIMESTAMP}:${CASHIER}`
  * or tracked in localStorage `quilombo_local_checkins`.
@@ -696,8 +842,15 @@ function renderAttendeesList() {
   if (!container) return;
 
   const rawSearch = (document.getElementById("attendeesListSearch")?.value || "").trim();
-  const searchQuery = normalizeSearch(rawSearch);
   const filter = state.activeFilter;
+  const isSearching = rawSearch.length > 0;
+
+  // Toggle clear button for Tab 2 search
+  const attendeesClearBtn = document.getElementById("attendeesSearchClearBtn");
+  if (attendeesClearBtn) {
+    if (isSearching) attendeesClearBtn.classList.add("visible");
+    else attendeesClearBtn.classList.remove("visible");
+  }
 
   const filtered = state.reservations.filter(r => {
     if (!isValidProductionTicket(r)) return false;
@@ -707,32 +860,40 @@ function renderAttendeesList() {
     const isCourtesy = isTicketCourtesy(r);
     const isDoorPay = (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash") && !isPaid;
 
-    // REGLE DE NEGOCIO: Los invitados SOLO aparecen en la pestaña '⭐ Invitados' (vip)
-    if (filter === "vip") {
-      if (!isCourtesy) return false;
+    if (isSearching) {
+      // Cuando hay búsqueda activa:
+      // Si el filtro es 'all' (Todos): busca en TODO el evento (compradores + invitados VIP)
+      // Si es un filtro específico, respeta ese filtro
+      if (filter === "vip" && !isCourtesy) return false;
+      if (filter === "inside" && !checkin.isCheckedIn) return false;
+      if (filter === "pending" && checkin.isCheckedIn) return false;
+      if (filter === "door_pay" && !isDoorPay) return false;
+      if (filter === "paid" && !isPaid) return false;
+
+      return matchesTicket(r, rawSearch);
     } else {
-      if (isCourtesy) return false;
+      // Sin búsqueda activa: Mantiene la lista limpia por pestañas
+      if (filter === "vip") {
+        if (!isCourtesy) return false;
+      } else {
+        if (isCourtesy) return false;
+      }
+
+      if (filter === "inside" && !checkin.isCheckedIn) return false;
+      if (filter === "pending" && checkin.isCheckedIn) return false;
+      if (filter === "door_pay" && !isDoorPay) return false;
+      if (filter === "paid" && !isPaid) return false;
+
+      return true;
     }
-
-    if (filter === "inside" && !checkin.isCheckedIn) return false;
-    if (filter === "pending" && checkin.isCheckedIn) return false;
-    if (filter === "door_pay" && !isDoorPay) return false;
-    if (filter === "paid" && !isPaid) return false;
-
-    if (searchQuery) {
-      const matchName = normalizeSearch(r.buyer_name).includes(searchQuery);
-      const matchDni = normalizeSearch(r.buyer_dni).replace(/[\.\-]/g, "").includes(searchQuery.replace(/[\.\-]/g, ""));
-      const matchCode = normalizeSearch(r.ticket_code).replace(/[\-]/g, "").includes(searchQuery.replace(/[\-]/g, ""));
-      const matchPhone = (r.buyer_phone || "").replace(/[^0-9]/g, "").includes(searchQuery.replace(/[^0-9]/g, ""));
-      const matchArtist = normalizeSearch(r.favorite_artist).includes(searchQuery);
-      if (!matchName && !matchDni && !matchCode && !matchPhone && !matchArtist) return false;
-    }
-
-    return true;
   });
 
-  // Update counts in filter chips:
-  // Asistentes regulares (excluyen invitados de cortesía)
+  // Si hay búsqueda activa, ordenar por relevancia
+  if (isSearching) {
+    filtered.sort((a, b) => scoreTicketRelevance(b, rawSearch) - scoreTicketRelevance(a, rawSearch));
+  }
+
+  // Actualizar conteos numéricos de los botones de filtro (basado en lista general)
   const regularTickets = state.reservations.filter(r => isValidProductionTicket(r) && !isTicketCourtesy(r));
   const totalRegular = regularTickets.length;
   const insideRegular = regularTickets.filter(r => getCheckinData(r).isCheckedIn).length;
@@ -740,7 +901,6 @@ function renderAttendeesList() {
   const doorPayRegular = regularTickets.filter(r => !r.is_paid && (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash")).length;
   const paidRegular = regularTickets.filter(r => r.is_paid).length;
 
-  // Invitados de cortesía VIP ($0)
   const vipCount = state.reservations.filter(r => isValidProductionTicket(r) && isTicketCourtesy(r)).length;
 
   document.getElementById("countFilterAll").textContent = totalRegular;
@@ -752,38 +912,60 @@ function renderAttendeesList() {
   document.getElementById("countFilterPaid").textContent = paidRegular;
 
   if (filtered.length === 0) {
-    let vipMatchHint = "";
-    if (searchQuery && filter !== "vip") {
-      const vipMatches = state.reservations.filter(r => {
-        if (!isValidProductionTicket(r) || !isTicketCourtesy(r)) return false;
-        const matchName = normalizeSearch(r.buyer_name).includes(searchQuery);
-        const matchCode = normalizeSearch(r.ticket_code).replace(/[\-]/g, "").includes(searchQuery.replace(/[\-]/g, ""));
-        return matchName || matchCode;
-      });
-      if (vipMatches.length > 0) {
-        vipMatchHint = `
-          <div style="margin-top: 1rem;">
-            <p style="color: var(--neon-cyan); font-size: 0.85rem; margin-bottom: 0.6rem;">
-              ⭐ Se encontraron <strong>${vipMatches.length}</strong> invitado(s) en la lista VIP.
+    let emptyHtml = '';
+    if (isSearching) {
+      const globalMatches = state.reservations.filter(r => isValidProductionTicket(r) && matchesTicket(r, rawSearch));
+      if (globalMatches.length > 0) {
+        emptyHtml = `
+          <div class="search-empty-state">
+            <div style="font-size: 2rem; margin-bottom: 0.4rem;">🔍</div>
+            <p style="color: #fff; font-weight: 700; margin-bottom: 0.4rem;">
+              No hay coincidencias en este filtro
             </p>
-            <button type="button" class="btn-pill" onclick="document.querySelector('[data-filter=\\'vip\\']').click();" style="background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 700; cursor: pointer; border: none;">
-              ⭐ Ver en Invitados (${vipMatches.length})
+            <p style="color: var(--neon-cyan); font-size: 0.85rem; margin-bottom: 1rem;">
+              ⭐ Se encontraron <strong>${globalMatches.length}</strong> boletos que coinciden en la lista completa.
+            </p>
+            <button type="button" class="btn-pill" onclick="switchToAllAndSearch('${escapeHtml(rawSearch)}')" style="background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; padding: 0.6rem 1.25rem; border-radius: 9999px; font-weight: 700; cursor: pointer; border: none; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);">
+              🌐 Ver todas las coincidencias (${globalMatches.length})
+            </button>
+          </div>
+        `;
+      } else {
+        emptyHtml = `
+          <div class="search-empty-state">
+            <div style="font-size: 2rem; margin-bottom: 0.4rem;">🔎</div>
+            <p style="color: #fff; font-weight: 700; margin-bottom: 0.3rem;">
+              No se encontró ningún boleto
+            </p>
+            <p style="color: var(--text-subtle); font-size: 0.82rem; margin-bottom: 1rem;">
+              No hay asistentes ni invitados para "<strong>${escapeHtml(rawSearch)}</strong>".
+            </p>
+            <button type="button" class="btn-clear-search-link" onclick="clearAttendeesSearch()">
+              ✕ Limpiar búsqueda
             </button>
           </div>
         `;
       }
+    } else {
+      emptyHtml = `
+        <div style="text-align: center; padding: 2.5rem; color: var(--text-subtle);">
+          No se encontraron asistentes con el filtro actual.
+        </div>
+      `;
     }
 
-    container.innerHTML = `
-      <div style="text-align: center; padding: 2.5rem; color: var(--text-subtle);">
-        No se encontraron asistentes con el filtro actual.
-        ${vipMatchHint}
-      </div>
-    `;
+    container.innerHTML = emptyHtml;
     return;
   }
 
-  container.innerHTML = filtered.map(r => {
+  const summaryHtml = isSearching ? `
+    <div class="attendees-search-summary">
+      <span>🔎 Mostrando <strong>${filtered.length}</strong> coincidencia${filtered.length > 1 ? 's' : ''} para "<strong>${escapeHtml(rawSearch)}</strong>"</span>
+      <button type="button" class="btn-clear-search-link" onclick="clearAttendeesSearch()">Limpiar ✕</button>
+    </div>
+  ` : '';
+
+  const rowsHtml = filtered.map(r => {
     const checkin = getCheckinData(r);
     const qty = r.quantity || 1;
     const isPaid = !!r.is_paid;
@@ -804,17 +986,23 @@ function renderAttendeesList() {
       badgeHtml = `<span class="badge badge-pending">⏳ PENDIENTE</span>`;
     }
 
+    const displayName = isSearching ? highlightTokens(r.buyer_name, rawSearch) : escapeHtml(r.buyer_name || 'Sin nombre');
+    const displayCode = isSearching ? highlightTokens(r.ticket_code, rawSearch) : escapeHtml(r.ticket_code);
+    const displayDni = r.buyer_dni && r.buyer_dni !== 'N/A' ? `<span>🪪 ${isSearching ? highlightTokens(r.buyer_dni, rawSearch) : escapeHtml(r.buyer_dni)}</span>` : '';
+    const displayPhone = r.buyer_phone ? `<span>📱 ${isSearching ? highlightTokens(r.buyer_phone, rawSearch) : escapeHtml(r.buyer_phone)}</span>` : '';
+
     return `
       <div class="attendee-row ${checkin.isCheckedIn ? 'checked-in' : ''}" onclick="openTicketById('${r.id}')">
         <div>
-          <div style="font-weight: 800; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 0.4rem;">
-            <span>${escapeHtml(r.buyer_name || 'Sin nombre')}</span>
+          <div style="font-weight: 800; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span>${displayName}</span>
             <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">(${qty} ${qty > 1 ? 'entradas' : 'entrada'})</span>
           </div>
-          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem; display: flex; gap: 0.6rem; align-items: center;">
-            <span style="font-family: monospace; color: var(--neon-cyan); font-weight: 700;">#${r.ticket_code}</span>
-            <span>🪪 ${escapeHtml(r.buyer_dni || '')}</span>
-            <span>📱 ${escapeHtml(r.buyer_phone || '')}</span>
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+            <span style="font-family: monospace; color: var(--neon-cyan); font-weight: 700;">#${displayCode}</span>
+            ${displayDni}
+            ${displayPhone}
+            ${isCourtesy && r.favorite_artist ? `<span style="color: #c084fc;">⭐ ${escapeHtml(r.favorite_artist)}</span>` : ''}
           </div>
         </div>
         <div>
@@ -823,86 +1011,119 @@ function renderAttendeesList() {
       </div>
     `;
   }).join('');
+
+  container.innerHTML = summaryHtml + rowsHtml;
 }
 
 // ==========================================
-// SEARCH & AUTOCOMPLETE LOGIC
+// SEARCH & AUTOCOMPLETE LOGIC (TAB 1 & TAB 2)
 // ==========================================
 function initSearch() {
   const searchInput = document.getElementById("searchInput");
   const clearBtn = document.getElementById("searchClearBtn");
   const dropdown = document.getElementById("searchResultsDropdown");
 
-  if (!searchInput) return;
+  let selectedDropdownIndex = -1;
 
-  searchInput.addEventListener("input", () => {
-    const query = searchInput.value.trim().toLowerCase();
-    if (query.length > 0) {
-      clearBtn?.classList.add("visible");
-      performSearch(query);
-    } else {
-      clearBtn?.classList.remove("visible");
-      dropdown?.classList.remove("visible");
-    }
-  });
-
-  clearBtn?.addEventListener("click", () => {
-    searchInput.value = "";
-    clearBtn.classList.remove("visible");
-    dropdown?.classList.remove("visible");
-    searchInput.focus();
-  });
-
-  // Enter triggers exact first match
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      const firstItem = dropdown?.querySelector(".search-result-item");
-      if (firstItem) {
-        firstItem.click();
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      const query = searchInput.value.trim();
+      if (query.length > 0) {
+        clearBtn?.classList.add("visible");
+        performSearch(query);
+      } else {
+        clearBtn?.classList.remove("visible");
+        dropdown?.classList.remove("visible");
       }
-    }
-  });
+    });
+
+    clearBtn?.addEventListener("click", () => {
+      searchInput.value = "";
+      clearBtn.classList.remove("visible");
+      dropdown?.classList.remove("visible");
+      searchInput.focus();
+    });
+
+    // Keyboard navigation in search dropdown
+    searchInput.addEventListener("keydown", (e) => {
+      const items = dropdown?.querySelectorAll(".search-result-item");
+      if (!items || items.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        selectedDropdownIndex = Math.min(selectedDropdownIndex + 1, items.length - 1);
+        updateSelectedDropdownItem(items);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        selectedDropdownIndex = Math.max(selectedDropdownIndex - 1, 0);
+        updateSelectedDropdownItem(items);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (selectedDropdownIndex >= 0 && items[selectedDropdownIndex]) {
+          items[selectedDropdownIndex].click();
+        } else if (items[0]) {
+          items[0].click();
+        }
+      } else if (e.key === "Escape") {
+        dropdown?.classList.remove("visible");
+      }
+    });
+  }
+
+  function updateSelectedDropdownItem(items) {
+    items.forEach((item, idx) => {
+      if (idx === selectedDropdownIndex) {
+        item.classList.add("selected");
+        item.scrollIntoView({ block: "nearest" });
+      } else {
+        item.classList.remove("selected");
+      }
+    });
+  }
 
   function performSearch(query) {
-    const normQuery = normalizeSearch(query);
-    const cleanQuery = normQuery.replace("#", "").replace(/-/g, "");
-    const cleanDigits = query.replace(/[^0-9]/g, "");
-    
-    const matches = state.reservations.filter(r => {
-      if (!isValidProductionTicket(r)) return false;
+    selectedDropdownIndex = -1;
+    const matches = state.reservations
+      .filter(r => isValidProductionTicket(r) && matchesTicket(r, query))
+      .sort((a, b) => scoreTicketRelevance(b, query) - scoreTicketRelevance(a, query));
 
-      const code = normalizeSearch(r.ticket_code).replace(/-/g, "");
-      const name = normalizeSearch(r.buyer_name);
-      const dni = normalizeSearch(r.buyer_dni).replace(/\./g, "").replace(/-/g, "");
-      const phone = (r.buyer_phone || "").replace(/[^0-9]/g, "");
-      const artist = normalizeSearch(r.favorite_artist);
+    const totalMatches = matches.length;
+    const visibleMatches = matches.slice(0, 30);
 
-      return code.includes(cleanQuery) || 
-             name.includes(normQuery) || 
-             dni.includes(cleanQuery) || 
-             (cleanDigits.length >= 4 && phone.includes(cleanDigits)) ||
-             artist.includes(normQuery);
-    }).slice(0, 8);
-
-    if (matches.length === 0) {
+    if (totalMatches === 0) {
       dropdown.innerHTML = `
-        <div style="padding: 1rem; text-align: center; color: var(--text-subtle); font-size: 0.82rem;">
+        <div style="padding: 1.25rem 1rem; text-align: center; color: var(--text-subtle); font-size: 0.85rem;">
+          <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">🔍</div>
           No se encontró ningún boleto para "<strong>${escapeHtml(query)}</strong>"
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">
+            Verificá el número de código, nombre o cédula.
+          </div>
         </div>
       `;
       dropdown.classList.add("visible");
       return;
     }
 
-    dropdown.innerHTML = matches.map(r => {
+    const headerHtml = `
+      <div class="search-results-header">
+        <span>⚡ ${totalMatches} coincidencia${totalMatches > 1 ? 's' : ''}</span>
+        <span style="font-size: 0.68rem; color: var(--text-muted); text-transform: none;">Presioná Enter para abrir</span>
+      </div>
+    `;
+
+    const itemsHtml = visibleMatches.map((r, idx) => {
       const checkin = getCheckinData(r);
       const isPaid = !!r.is_paid;
-      const isDoor = r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash";
+      const isCourtesy = isTicketCourtesy(r);
+      const isDoor = (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash") && !isPaid;
+      const qty = r.quantity || 1;
 
       let statusBadge = '';
       if (checkin.isCheckedIn) {
         statusBadge = `<span class="res-item-badge badge-in">🟢 YA EN SALA</span>`;
-      } else if (isDoor && !isPaid) {
+      } else if (isCourtesy) {
+        statusBadge = `<span class="res-item-badge badge-vip">⭐ INVITADO ($0)</span>`;
+      } else if (isDoor) {
         const refBs = r.total_ref_bs ? formatBs(r.total_ref_bs) : formatBs(Number(r.total_usd) * getBcvRate());
         statusBadge = `<span class="res-item-badge badge-pending">💵 COBRAR $${r.total_usd} (Bs. ${refBs})</span>`;
       } else if (isPaid) {
@@ -911,14 +1132,24 @@ function initSearch() {
         statusBadge = `<span class="res-item-badge badge-pending">⏳ PENDIENTE</span>`;
       }
 
+      const highlightedName = highlightTokens(r.buyer_name, query);
+      const highlightedCode = highlightTokens(r.ticket_code, query);
+      const dniText = r.buyer_dni && r.buyer_dni !== 'N/A' ? `<span>• 🪪 ${highlightTokens(r.buyer_dni, query)}</span>` : '';
+      const phoneText = r.buyer_phone ? `<span>• 📱 ${highlightTokens(r.buyer_phone, query)}</span>` : '';
+      const artistText = isCourtesy && r.favorite_artist ? `<span style="color: #c084fc;">• ⭐ ${escapeHtml(r.favorite_artist)}</span>` : '';
+
       return `
-        <div class="search-result-item" onclick="openTicketById('${r.id}'); document.getElementById('searchResultsDropdown').classList.remove('visible');">
+        <div class="search-result-item" data-index="${idx}" onclick="openTicketById('${r.id}'); document.getElementById('searchResultsDropdown').classList.remove('visible');">
           <div class="res-item-main">
-            <span class="res-item-name">${escapeHtml(r.buyer_name)}</span>
+            <div class="res-item-name-row">
+              <span class="res-item-name">${highlightedName}</span>
+              <span class="res-item-qty-tag">${qty} pers.</span>
+            </div>
             <div class="res-item-meta">
-              <span class="res-item-code">#${r.ticket_code}</span>
-              <span>• DNI: ${escapeHtml(r.buyer_dni || '')}</span>
-              <span>• ${r.quantity || 1} pers.</span>
+              <span class="res-item-code">#${highlightedCode}</span>
+              ${dniText}
+              ${phoneText}
+              ${artistText}
             </div>
           </div>
           <div>${statusBadge}</div>
@@ -926,6 +1157,13 @@ function initSearch() {
       `;
     }).join('');
 
+    const viewAllBtnHtml = `
+      <button type="button" class="search-view-all-btn" onclick="transferSearchToAttendees('${escapeHtml(query)}')">
+        📋 Ver estos ${totalMatches} boletos en la Lista de Asistentes ➔
+      </button>
+    `;
+
+    dropdown.innerHTML = headerHtml + itemsHtml + viewAllBtnHtml;
     dropdown.classList.add("visible");
   }
 
@@ -936,11 +1174,66 @@ function initSearch() {
     }
   });
 
-  // Attendees list search input
+  // Attendees list search input (Tab 2)
   const attendeesSearch = document.getElementById("attendeesListSearch");
+  const attendeesClearBtn = document.getElementById("attendeesSearchClearBtn");
+
   attendeesSearch?.addEventListener("input", () => {
     renderAttendeesList();
   });
+
+  attendeesClearBtn?.addEventListener("click", () => {
+    if (attendeesSearch) attendeesSearch.value = "";
+    attendeesClearBtn.classList.remove("visible");
+    renderAttendeesList();
+    attendeesSearch?.focus();
+  });
+
+  attendeesSearch?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (attendeesSearch) attendeesSearch.value = "";
+      renderAttendeesList();
+    }
+  });
+}
+
+function transferSearchToAttendees(query) {
+  const dropdown = document.getElementById("searchResultsDropdown");
+  dropdown?.classList.remove("visible");
+
+  const tabBtn = document.querySelector('[data-tab="tabAttendees"]');
+  if (tabBtn) tabBtn.click();
+
+  const attendeesSearch = document.getElementById("attendeesListSearch");
+  if (attendeesSearch) {
+    attendeesSearch.value = query;
+    attendeesSearch.focus();
+  }
+  renderAttendeesList();
+}
+
+function clearAttendeesSearch() {
+  const attendeesSearch = document.getElementById("attendeesListSearch");
+  const attendeesClearBtn = document.getElementById("attendeesSearchClearBtn");
+  if (attendeesSearch) {
+    attendeesSearch.value = "";
+    attendeesSearch.focus();
+  }
+  attendeesClearBtn?.classList.remove("visible");
+  renderAttendeesList();
+}
+
+function switchToAllAndSearch(query) {
+  state.activeFilter = "all";
+  document.querySelectorAll(".list-filter-bar .filter-chip").forEach(c => {
+    if (c.getAttribute("data-filter") === "all") c.classList.add("active");
+    else c.classList.remove("active");
+  });
+  const attendeesSearch = document.getElementById("attendeesListSearch");
+  if (attendeesSearch) {
+    attendeesSearch.value = query;
+  }
+  renderAttendeesList();
 }
 
 // ==========================================
