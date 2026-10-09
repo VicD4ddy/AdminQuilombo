@@ -12,7 +12,7 @@ const CONFIG = {
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55ZmplaGFkbnJwc3ppZGxlYmVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2ODUyODMsImV4cCI6MjEwNTI2MTI4M30.oNeC_hXzo6cAA4GjEIeZ6L5YyfVB8kQMH_wRtYcjk28",
   AUTO_SYNC_INTERVAL_MS: 12000,
   TICKET_PRICE_USD: 15,
-  BCV_RATE: 974.42
+  BCV_RATE: 980.615
 };
 
 // ==========================================
@@ -368,6 +368,34 @@ function loadOfflineCache() {
 }
 
 /**
+ * Calculates current BCV official rate dynamically from Supabase records or fallback
+ */
+function getBcvRate() {
+  if (state.reservations && state.reservations.length > 0) {
+    for (const r of state.reservations) {
+      if (!r.id?.startsWith("sim-") && Number(r.total_usd) > 0 && Number(r.total_ref_bs) > 0) {
+        const calculatedRate = Number(r.total_ref_bs) / Number(r.total_usd);
+        if (calculatedRate > 100) {
+          return Number(calculatedRate.toFixed(4));
+        }
+      }
+    }
+  }
+  return CONFIG.BCV_RATE;
+}
+
+/**
+ * Formats Venezuelan Bolivares (Bs.) with dot thousands and comma decimals (es-VE)
+ */
+function formatBs(amount) {
+  if (amount === undefined || amount === null || isNaN(amount)) return "0,00";
+  return Number(amount).toLocaleString("es-VE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/**
  * Parses check-in details from reservation record.
  * A check-in is encoded in `meme_sticker_used` as `${originalMeme}|CHECKED_IN:${ISO_TIMESTAMP}:${CASHIER}`
  * or tracked in localStorage `quilombo_local_checkins`.
@@ -562,13 +590,21 @@ function updateMetricsAndUI() {
   if (elInside) elInside.textContent = `${insideHeadcount} pers.`;
   if (elTotal) elTotal.textContent = `${totalTickets} (${totalHeadcount}p)`;
   if (elRem) elRem.textContent = `${remainingHeadcount} pers.`;
-  if (elCash) elCash.textContent = `$${cashCollected} USD`;
+  if (elCash) {
+    elCash.textContent = `$${cashCollected} USD`;
+    elCash.title = `Cobrado: $${cashCollected} USD • Bs. ${formatBs(cashCollected * getBcvRate())}`;
+  }
 
   // Render recent check-ins strip
   renderRecentCheckins();
 
   // Render attendees list
   renderAttendeesList();
+
+  // Refresh Taquilla prices if active
+  if (typeof window.refreshExpressFormUI === "function") {
+    window.refreshExpressFormUI();
+  }
 }
 
 function renderRecentCheckins() {
@@ -704,7 +740,8 @@ function renderAttendeesList() {
     } else if (isCourtesy) {
       badgeHtml = `<span class="badge badge-vip">⭐ INVITADO ($0)</span>`;
     } else if (isDoor && !isPaid) {
-      badgeHtml = `<span class="badge badge-pending">💵 COBRAR $${r.total_usd}</span>`;
+      const refBs = r.total_ref_bs ? formatBs(r.total_ref_bs) : formatBs(Number(r.total_usd) * getBcvRate());
+      badgeHtml = `<span class="badge badge-pending">💵 COBRAR $${r.total_usd} (Bs. ${refBs})</span>`;
     } else if (isPaid) {
       badgeHtml = `<span class="badge badge-paid">✓ PAGADO</span>`;
     } else {
@@ -806,7 +843,8 @@ function initSearch() {
       if (checkin.isCheckedIn) {
         statusBadge = `<span class="res-item-badge badge-in">🟢 YA EN SALA</span>`;
       } else if (isDoor && !isPaid) {
-        statusBadge = `<span class="res-item-badge badge-pending">💵 COBRAR $${r.total_usd}</span>`;
+        const refBs = r.total_ref_bs ? formatBs(r.total_ref_bs) : formatBs(Number(r.total_usd) * getBcvRate());
+        statusBadge = `<span class="res-item-badge badge-pending">💵 COBRAR $${r.total_usd} (Bs. ${refBs})</span>`;
       } else if (isPaid) {
         statusBadge = `<span class="res-item-badge badge-paid">✓ PAGADO</span>`;
       } else {
@@ -1147,7 +1185,8 @@ function openTicketVerificationModal(ticket) {
     `<a href="https://wa.me/${ticket.buyer_phone.replace(/[^0-9]/g, '')}" target="_blank" style="color: var(--neon-cyan); text-decoration: none;">💬 ${escapeHtml(ticket.buyer_phone)}</a>` : 
     'No indicado';
 
-  if (elAmount) elAmount.textContent = `$${ticket.total_usd || 0} USD (Ref: Bs. ${ticket.total_ref_bs || '0'})`;
+  const ticketRefBs = ticket.total_ref_bs ? Number(ticket.total_ref_bs) : (Number(ticket.total_usd) * getBcvRate());
+  if (elAmount) elAmount.textContent = `$${ticket.total_usd || 0} USD (Ref: Bs. ${formatBs(ticketRefBs)})`;
   if (elArtist) elArtist.textContent = ticket.favorite_artist || 'Sin tema especificado';
 
   // State Evaluation & Banner Design
@@ -1211,17 +1250,18 @@ function openTicketVerificationModal(ticket) {
     `;
   } else if (isDoorCash && !isPaid) {
     // PENDING DOOR PAYMENT
+    const refBs = ticket.total_ref_bs ? Number(ticket.total_ref_bs) : (Number(ticket.total_usd) * getBcvRate());
     banner.classList.add("status-warn");
     bannerIcon.textContent = "💵";
-    bannerTitle.textContent = `PAGO EN PUERTA: COBRAR $${ticket.total_usd} USD`;
-    elPayStatus.innerHTML = `<span style="color: var(--neon-yellow); font-weight: 800;">PENDIENTE DE COBRO EN PUERTA</span>`;
+    bannerTitle.textContent = `PAGO EN PUERTA: COBRAR $${ticket.total_usd} USD (Bs. ${formatBs(refBs)})`;
+    elPayStatus.innerHTML = `<span style="color: var(--neon-yellow); font-weight: 800;">PENDIENTE DE COBRO EN PUERTA ($${ticket.total_usd} USD • Bs. ${formatBs(refBs)})</span>`;
     elTimeRow.style.display = "none";
 
     sounds.playCash();
 
     actionsContainer.innerHTML = `
       <button type="button" class="btn-action-cash" onclick="confirmCheckinAction(true)">
-        <span>💵 REGISTRAR PAGO ($${ticket.total_usd} USD) Y DAR ACCESO</span>
+        <span>💵 REGISTRAR PAGO $${ticket.total_usd} USD (Bs. ${formatBs(refBs)}) Y DAR ACCESO</span>
       </button>
       <button type="button" class="btn-action-vip" style="padding: 0.75rem; font-size: 0.88rem;" onclick="confirmCheckinAction(false)">
         <span>⭐ EXONERAR / INGRESAR COMO CORTESÍA ($0)</span>
@@ -1232,17 +1272,18 @@ function openTicketVerificationModal(ticket) {
     `;
   } else if (!isPaid) {
     // UNCONFIRMED WIRE TRANSFER
+    const refBs = ticket.total_ref_bs ? Number(ticket.total_ref_bs) : (Number(ticket.total_usd) * getBcvRate());
     banner.classList.add("status-warn");
     bannerIcon.textContent = "⏳";
     bannerTitle.textContent = "TRANSFERENCIA PENDIENTE POR VALIDAR";
-    elPayStatus.innerHTML = `<span style="color: var(--neon-yellow); font-weight: 800;">Comprobante no confirmado ($${ticket.total_usd} USD)</span>`;
+    elPayStatus.innerHTML = `<span style="color: var(--neon-yellow); font-weight: 800;">Comprobante no confirmado ($${ticket.total_usd} USD • Bs. ${formatBs(refBs)})</span>`;
     elTimeRow.style.display = "none";
 
     sounds.playWarning();
 
     actionsContainer.innerHTML = `
       <button type="button" class="btn-action-primary" onclick="confirmCheckinAction(true)">
-        <span>✅ VALIDAR PAGO Y DAR ACCESO (${qty}p)</span>
+        <span>✅ VALIDAR PAGO $${ticket.total_usd} USD (Bs. ${formatBs(refBs)}) Y DAR ACCESO (${qty}p)</span>
       </button>
       <button type="button" class="btn-action-vip" style="padding: 0.75rem; font-size: 0.88rem;" onclick="confirmCheckinAction(false)">
         <span>⭐ EXONERAR / INGRESAR COMO CORTESÍA ($0)</span>
@@ -1316,29 +1357,41 @@ function initExpressCheckin() {
     const isVIP = paymentSelect?.value.includes("Cortesía") || paymentSelect?.value.includes("Invitado");
     const qty = parseInt(qtySelect?.value) || 1;
     const currentSelected = qtySelect?.value || "1";
+    const rate = getBcvRate();
 
     if (qtySelect) {
       qtySelect.innerHTML = Array.from({ length: 10 }, (_, i) => {
         const n = i + 1;
         const pLabel = n === 1 ? "1 Persona" : `${n} Personas`;
-        const costLabel = isVIP ? "(Cortesía $0)" : `($${n * CONFIG.TICKET_PRICE_USD} USD)`;
+        const usdVal = n * CONFIG.TICKET_PRICE_USD;
+        const bsVal = usdVal * rate;
+        const costLabel = isVIP ? "(Cortesía $0 • Bs. 0)" : `($${usdVal} USD • Bs. ${formatBs(bsVal)})`;
         return `<option value="${n}">${pLabel} ${costLabel}</option>`;
       }).join("");
       qtySelect.value = currentSelected;
+    }
+
+    const infoPriceEl = document.getElementById("infoTicketPriceBcv");
+    if (infoPriceEl) {
+      infoPriceEl.innerHTML = `💵 <strong>Precio en Puerta:</strong> $15 USD • Bs. ${formatBs(15 * rate)} (Tasa BCV oficial)`;
     }
 
     if (submitBtn) {
       if (isVIP) {
         submitBtn.className = "btn-action-vip";
         const personText = qty === 1 ? "INVITADO" : `${qty} INVITADOS`;
-        submitBtn.innerHTML = `<span>⭐ REGISTRAR ${personText} Y DAR ACCESO ($0)</span>`;
+        submitBtn.innerHTML = `<span>⭐ REGISTRAR ${personText} Y DAR ACCESO ($0 / Bs. 0)</span>`;
       } else {
         submitBtn.className = "btn-action-primary";
         const total = qty * CONFIG.TICKET_PRICE_USD;
-        submitBtn.innerHTML = `<span>⚡ COBRAR $${total} USD Y DAR ACCESO (${qty}p)</span>`;
+        const totalBs = total * rate;
+        submitBtn.innerHTML = `<span>⚡ COBRAR $${total} USD (Bs. ${formatBs(totalBs)}) Y DAR ACCESO (${qty}p)</span>`;
       }
     }
   }
+
+  window.refreshExpressFormUI = refreshFormUI;
+  refreshFormUI();
 
   paymentSelect?.addEventListener("change", refreshFormUI);
   qtySelect?.addEventListener("change", refreshFormUI);
@@ -1358,10 +1411,11 @@ function initExpressCheckin() {
     }
 
     const isVIP = payment.includes("Cortesía") || payment.includes("Invitado");
+    const rate = getBcvRate();
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const code = `QLB-26-${randomNum}`;
     const totalUSD = isVIP ? 0 : (qty * CONFIG.TICKET_PRICE_USD);
-    const totalRefBs = isVIP ? 0 : Number((totalUSD * CONFIG.BCV_RATE).toFixed(2));
+    const totalRefBs = isVIP ? 0 : Number((totalUSD * rate).toFixed(2));
     const nowISO = new Date().toISOString();
 
     const newTicket = {
@@ -1388,19 +1442,16 @@ function initExpressCheckin() {
       showToast(`Registrando acceso de invitado #${code} ($0 USD)...`, "info");
     } else {
       sounds.playCash();
-      showToast(`Registrando venta de #${code} ($${totalUSD} USD)...`, "info");
+      showToast(`Registrando venta de #${code} ($${totalUSD} USD • Bs. ${formatBs(totalRefBs)})...`, "info");
     }
 
     // Add to in-memory immediately
     state.reservations.unshift(newTicket);
     markCheckin(newTicket, true);
 
-    // Reset form
+    // Reset form and refresh UI
     form.reset();
-    if (submitBtn) {
-      submitBtn.className = "btn-action-primary";
-      submitBtn.innerHTML = "<span>⚡ COBRAR Y DAR ACCESO INMEDIATO</span>";
-    }
+    refreshFormUI();
 
     // Insert into Supabase
     try {
@@ -1569,15 +1620,15 @@ const SIMULATION_DEFAULTS = [
     tier_name: "Pase General Oficial (Efectivo Puerta)",
     quantity: 1,
     total_usd: 15,
-    total_ref_bs: 14616.30,
+    total_ref_bs: 14709.23,
     payment_method: "Efectivo en Rock & Riff",
     favorite_artist: "Goteo / Duki",
     meme_sticker_used: "meme-duki",
     is_paid: false,
     scenarioType: "doorpay",
-    badgeLabel: "🟡 Cobrar $15 USD en Puerta",
+    badgeLabel: "🟡 Cobrar $15 USD (Bs. 14.709,23) en Puerta",
     badgeClass: "scenario-doorpay",
-    title: "3. Pago Pendiente en Puerta ($15 USD)",
+    title: "3. Pago Pendiente en Puerta ($15 USD • Bs. 14.709,23)",
     desc: "El usuario reservó para pagar en efectivo en taquilla. Permite probar el botón 'Registrar Pago y Dar Acceso'."
   },
   {
