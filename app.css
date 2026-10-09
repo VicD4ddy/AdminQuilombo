@@ -1114,6 +1114,12 @@ body {
   color: var(--neon-red);
 }
 
+.badge-vip {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid var(--neon-purple);
+  color: #d8b4fe;
+}
+
 /* =========================================
    TICKET VERIFICATION MODAL
    ========================================= */
@@ -1200,6 +1206,12 @@ body {
 .status-invalid {
   background: linear-gradient(135deg, #475569 0%, #64748b 100%);
   color: #fff;
+}
+
+.status-vip {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.45);
 }
 
 .modal-close-x {
@@ -1348,6 +1360,29 @@ body {
 .btn-action-cash:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 30px rgba(245, 158, 11, 0.55);
+}
+
+.btn-action-vip {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  border: 1px solid #c084fc;
+  color: #fff;
+  font-family: var(--font-title);
+  font-size: 1.05rem;
+  font-weight: 800;
+  padding: 0.95rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-action-vip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(139, 92, 246, 0.6);
 }
 
 .btn-action-secondary {
@@ -1687,6 +1722,10 @@ body {
 
 .sim-card.scenario-fake {
   border-left: 4px solid var(--text-subtle);
+}
+
+.sim-card.scenario-vip {
+  border-left: 4px solid #a855f7;
 }
 
 .sim-card-grid {

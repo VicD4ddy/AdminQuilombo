@@ -612,6 +612,28 @@ function renderRecentCheckins() {
   }).join('');
 }
 
+function isTicketCourtesy(r) {
+  if (!r) return false;
+  const pm = (r.payment_method || "").toLowerCase();
+  const tn = (r.tier_name || "").toLowerCase();
+  const ti = (r.tier_id || "").toLowerCase();
+  return (
+    ti === "courtesy" ||
+    ti === "cortesia" ||
+    ti === "invitado" ||
+    ti === "vip" ||
+    pm.includes("cortesía") ||
+    pm.includes("cortesia") ||
+    pm.includes("invitado") ||
+    pm.includes("free") ||
+    tn.includes("cortesía") ||
+    tn.includes("cortesia") ||
+    tn.includes("invitado") ||
+    tn.includes("vip") ||
+    (Number(r.total_usd) === 0 && ti !== "fake" && ti !== "deleted")
+  );
+}
+
 function renderAttendeesList() {
   const container = document.getElementById("attendeesListContainer");
   if (!container) return;
@@ -624,11 +646,13 @@ function renderAttendeesList() {
 
     const checkin = getCheckinData(r);
     const isPaid = !!r.is_paid;
+    const isCourtesy = isTicketCourtesy(r);
     const isDoorPay = (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash") && !isPaid;
 
     if (filter === "inside" && !checkin.isCheckedIn) return false;
     if (filter === "pending" && checkin.isCheckedIn) return false;
     if (filter === "door_pay" && !isDoorPay) return false;
+    if (filter === "vip" && !isCourtesy) return false;
     if (filter === "paid" && !isPaid) return false;
 
     if (searchQuery) {
@@ -647,12 +671,15 @@ function renderAttendeesList() {
   const inside = state.reservations.filter(r => r.tier_id !== "deleted" && getCheckinData(r).isCheckedIn).length;
   const pending = total - inside;
   const doorPay = state.reservations.filter(r => r.tier_id !== "deleted" && !r.is_paid && (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash")).length;
+  const vipCount = state.reservations.filter(r => r.tier_id !== "deleted" && isTicketCourtesy(r)).length;
   const paid = state.reservations.filter(r => r.tier_id !== "deleted" && r.is_paid).length;
 
   document.getElementById("countFilterAll").textContent = total;
   document.getElementById("countFilterInside").textContent = inside;
   document.getElementById("countFilterPending").textContent = pending;
   document.getElementById("countFilterDoorPay").textContent = doorPay;
+  const countVipEl = document.getElementById("countFilterVip");
+  if (countVipEl) countVipEl.textContent = vipCount;
   document.getElementById("countFilterPaid").textContent = paid;
 
   if (filtered.length === 0) {
@@ -668,11 +695,14 @@ function renderAttendeesList() {
     const checkin = getCheckinData(r);
     const qty = r.quantity || 1;
     const isPaid = !!r.is_paid;
+    const isCourtesy = isTicketCourtesy(r);
     const isDoor = r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash";
 
     let badgeHtml = '';
     if (checkin.isCheckedIn) {
       badgeHtml = `<span class="badge badge-in">🟢 EN SALA</span>`;
+    } else if (isCourtesy) {
+      badgeHtml = `<span class="badge badge-vip">⭐ INVITADO ($0)</span>`;
     } else if (isDoor && !isPaid) {
       badgeHtml = `<span class="badge badge-pending">💵 COBRAR $${r.total_usd}</span>`;
     } else if (isPaid) {
@@ -1161,6 +1191,24 @@ function openTicketVerificationModal(ticket) {
         ✕ Escanear Siguiente
       </button>
     `;
+  } else if (isTicketCourtesy(ticket)) {
+    // COURTESY / GUEST TICKET ($0 - VIP)
+    banner.classList.add("status-vip");
+    bannerIcon.textContent = "⭐";
+    bannerTitle.textContent = `PASE INVITADO / CORTESÍA (${qty} ${qty > 1 ? 'PERSONAS' : 'PERSONA'})`;
+    elPayStatus.innerHTML = `<span style="color: #d8b4fe; font-weight: 800;">⭐ Cortesía Oficial / Acceso Libre ($0 USD)</span>`;
+    elTimeRow.style.display = "none";
+
+    sounds.playSuccess();
+
+    actionsContainer.innerHTML = `
+      <button type="button" class="btn-action-vip" onclick="confirmCheckinAction(false)">
+        <span>⭐ DAR ACCESO INVITADO (${qty} ${qty > 1 ? 'PERSONAS' : 'PERSONA'})</span>
+      </button>
+      <button type="button" class="btn-action-secondary" onclick="closeTicketModal()">
+        ✕ Siguiente Entrada
+      </button>
+    `;
   } else if (isDoorCash && !isPaid) {
     // PENDING DOOR PAYMENT
     banner.classList.add("status-warn");
@@ -1175,8 +1223,8 @@ function openTicketVerificationModal(ticket) {
       <button type="button" class="btn-action-cash" onclick="confirmCheckinAction(true)">
         <span>💵 REGISTRAR PAGO ($${ticket.total_usd} USD) Y DAR ACCESO</span>
       </button>
-      <button type="button" class="btn-action-primary" onclick="confirmCheckinAction(false)">
-        <span>✓ DAR ACCESO SIN COBRAR (Cortesía / Ya pagó)</span>
+      <button type="button" class="btn-action-vip" style="padding: 0.75rem; font-size: 0.88rem;" onclick="confirmCheckinAction(false)">
+        <span>⭐ EXONERAR / INGRESAR COMO CORTESÍA ($0)</span>
       </button>
       <button type="button" class="btn-action-secondary" onclick="closeTicketModal()">
         ✕ Cancelar / Siguiente
@@ -1195,6 +1243,9 @@ function openTicketVerificationModal(ticket) {
     actionsContainer.innerHTML = `
       <button type="button" class="btn-action-primary" onclick="confirmCheckinAction(true)">
         <span>✅ VALIDAR PAGO Y DAR ACCESO (${qty}p)</span>
+      </button>
+      <button type="button" class="btn-action-vip" style="padding: 0.75rem; font-size: 0.88rem;" onclick="confirmCheckinAction(false)">
+        <span>⭐ EXONERAR / INGRESAR COMO CORTESÍA ($0)</span>
       </button>
       <button type="button" class="btn-action-secondary" onclick="closeTicketModal()">
         ✕ Cancelar / Siguiente
@@ -1257,6 +1308,24 @@ function initExpressCheckin() {
   const form = document.getElementById("expressCheckinForm");
   if (!form) return;
 
+  const paymentSelect = document.getElementById("expressPayment");
+  const submitBtn = form.querySelector("button[type='submit']");
+
+  paymentSelect?.addEventListener("change", () => {
+    const isVIP = paymentSelect.value.includes("Cortesía") || paymentSelect.value.includes("Invitado");
+    if (isVIP) {
+      if (submitBtn) {
+        submitBtn.className = "btn-action-vip";
+        submitBtn.innerHTML = "<span>⭐ REGISTRAR INVITADO Y DAR ACCESO ($0)</span>";
+      }
+    } else {
+      if (submitBtn) {
+        submitBtn.className = "btn-action-primary";
+        submitBtn.innerHTML = "<span>⚡ COBRAR Y DAR ACCESO INMEDIATO</span>";
+      }
+    }
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
@@ -1271,10 +1340,11 @@ function initExpressCheckin() {
       return;
     }
 
+    const isVIP = payment.includes("Cortesía") || payment.includes("Invitado");
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const code = `QLB-26-${randomNum}`;
-    const totalUSD = qty * CONFIG.TICKET_PRICE_USD;
-    const totalRefBs = Number((totalUSD * CONFIG.BCV_RATE).toFixed(2));
+    const totalUSD = isVIP ? 0 : (qty * CONFIG.TICKET_PRICE_USD);
+    const totalRefBs = isVIP ? 0 : Number((totalUSD * CONFIG.BCV_RATE).toFixed(2));
     const nowISO = new Date().toISOString();
 
     const newTicket = {
@@ -1283,21 +1353,26 @@ function initExpressCheckin() {
       buyer_dni: dni,
       buyer_phone: phone || "No suministrado",
       buyer_email: "puerta@elquilombo.club",
-      tier_id: "general",
-      tier_name: "Pase General Oficial (Puerta)",
+      tier_id: isVIP ? "courtesy" : "general",
+      tier_name: isVIP ? "Pase Invitado / Cortesía Oficial" : "Pase General Oficial (Puerta)",
       quantity: qty,
       total_usd: totalUSD,
       total_ref_bs: totalRefBs,
       payment_method: payment,
-      favorite_artist: "Rock & Riff Live",
+      favorite_artist: isVIP ? "Invitado VIP" : "Rock & Riff Live",
       meme_sticker_used: `meme-quilombo|CHECKED_IN:${nowISO}:Taquilla`,
       is_paid: true,
-      referral_source: "Taquilla Puerta",
+      referral_source: isVIP ? "Lista de Invitados Puerta" : "Taquilla Puerta",
       created_at: nowISO
     };
 
-    sounds.playCash();
-    showToast(`Registrando venta de #${code} ($${totalUSD} USD)...`, "info");
+    if (isVIP) {
+      sounds.playSuccess();
+      showToast(`Registrando acceso de invitado #${code} ($0 USD)...`, "info");
+    } else {
+      sounds.playCash();
+      showToast(`Registrando venta de #${code} ($${totalUSD} USD)...`, "info");
+    }
 
     // Add to in-memory immediately
     state.reservations.unshift(newTicket);
@@ -1305,6 +1380,10 @@ function initExpressCheckin() {
 
     // Reset form
     form.reset();
+    if (submitBtn) {
+      submitBtn.className = "btn-action-primary";
+      submitBtn.innerHTML = "<span>⚡ COBRAR Y DAR ACCESO INMEDIATO</span>";
+    }
 
     // Insert into Supabase
     try {
@@ -1319,7 +1398,7 @@ function initExpressCheckin() {
         body: JSON.stringify([newTicket])
       });
       if (res.ok) {
-        showToast(`¡Venta e ingreso de #${code} registrado exitosamente!`, "success");
+        showToast(isVIP ? `¡Pase de invitado #${code} emitido con éxito!` : `¡Venta e ingreso de #${code} registrado exitosamente!`, "success");
       }
     } catch (err) {
       console.warn("Failed to push express ticket to Supabase (saved locally):", err);
@@ -1527,6 +1606,28 @@ const SIMULATION_DEFAULTS = [
     badgeClass: "scenario-fake",
     title: "5. Código QR Inválido o Desconocido",
     desc: "Simula el escaneo de un código que no pertenece al evento para probar el rechazo sonoro y visual."
+  },
+  {
+    id: "sim-6",
+    ticket_code: "QLB-26-VIP",
+    buyer_name: "Gonzalo Conde (Bizarrap)",
+    buyer_dni: "V-29.500.123",
+    buyer_phone: "0412 8889900",
+    buyer_email: "biza@quilombo.test",
+    tier_id: "courtesy",
+    tier_name: "Pase Invitado / Cortesía VIP",
+    quantity: 2,
+    total_usd: 0,
+    total_ref_bs: 0,
+    payment_method: "Cortesía / Invitado",
+    favorite_artist: "BZRP Music Sessions",
+    meme_sticker_used: "meme-biza",
+    is_paid: true,
+    scenarioType: "vip",
+    badgeLabel: "⭐ Cortesía VIP ($0 USD)",
+    badgeClass: "scenario-vip",
+    title: "6. Pase de Invitado / Cortesía VIP (2 Personas - $0 USD)",
+    desc: "Simula el escaneo de un invitado especial, prensa o artista con pase libre ($0 USD)."
   }
 ];
 
