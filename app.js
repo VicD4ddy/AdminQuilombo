@@ -1081,8 +1081,8 @@ function handleDecodedQr(decodedText) {
   let targetCode = null;
   let targetDni = null;
 
-  // Check regex for QLB code
-  const qlbMatch = decodedText.match(/(?:DEL_[a-z0-9]+_)?QLB-\d{2}-\d{4}/i);
+  // Check regex for QLB code (e.g. QLB-26-XXXX or QLB-VIP-XXXX)
+  const qlbMatch = decodedText.match(/(?:DEL_[a-z0-9]+_)?QLB-(?:\d{2}|VIP)-\d{4}/i);
   if (qlbMatch) {
     targetCode = qlbMatch[0].toUpperCase();
   } else {
