@@ -1579,6 +1579,12 @@ function initNavigation() {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeTicketModal();
   });
+
+  // Export / Print guests list
+  document.getElementById("btnExportGuestsPdf")?.addEventListener("click", () => {
+    sounds.playSuccess();
+    exportGuestsPdf();
+  });
 }
 
 // ==========================================
@@ -1593,6 +1599,506 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+/**
+ * Generates and triggers high-contrast printable sheet / PDF of all official guests
+ * with individual physical checkboxes, guest count, and note lines.
+ */
+function exportGuestsPdf() {
+  const guests = state.reservations
+    .filter(r => isValidProductionTicket(r) && isTicketCourtesy(r))
+    .sort((a, b) => (a.buyer_name || "").localeCompare(b.buyer_name || "", "es", { sensitivity: "base" }));
+
+  if (guests.length === 0) {
+    showToast("No se encontraron invitados registrados para exportar.", "warning");
+    return;
+  }
+
+  const totalTickets = guests.length;
+  const totalHeadcount = guests.reduce((sum, g) => sum + (Number(g.quantity) || 1), 0);
+  const insideHeadcount = guests.filter(g => getCheckinData(g).isCheckedIn).reduce((sum, g) => sum + (Number(g.quantity) || 1), 0);
+  const pendingHeadcount = totalHeadcount - insideHeadcount;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("es-VE", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
+  const timeStr = now.toLocaleTimeString("es-VE", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+
+  const rowsHtml = guests.map((g, idx) => {
+    const qty = Number(g.quantity) || 1;
+    const checkin = getCheckinData(g);
+    const phone = g.buyer_phone && g.buyer_phone !== "No suministrado" ? g.buyer_phone : "";
+    const dni = g.buyer_dni && !g.buyer_dni.startsWith("VIP-") ? g.buyer_dni : "";
+    const contactInfo = [dni, phone].filter(Boolean).join(" • ") || "-";
+    
+    const role = g.favorite_artist && g.favorite_artist !== "Invitado Especial" 
+      ? g.favorite_artist 
+      : (g.tier_name || "Invitado Oficial");
+
+    const alreadyIn = checkin.isCheckedIn;
+
+    // Split main name and companions if formatted with parentheses
+    let mainName = g.buyer_name || "Sin nombre";
+    let companionsNote = "";
+    if (mainName.includes("(")) {
+      const parts = mainName.split("(");
+      mainName = parts[0].trim();
+      companionsNote = parts.slice(1).join("(").replace(/\)$/, "").trim();
+    }
+
+    return `
+      <tr class="${alreadyIn ? 'row-in' : 'row-pending'}" data-status="${alreadyIn ? 'in' : 'pending'}">
+        <td class="col-check">
+          <div class="chk-box">${alreadyIn ? '✓' : ''}</div>
+        </td>
+        <td class="col-num">${idx + 1}</td>
+        <td class="col-name">
+          <div class="guest-title">${escapeHtml(mainName)}</div>
+          ${companionsNote ? `<div class="guest-companions">👥 ${escapeHtml(companionsNote)}</div>` : ''}
+          ${g.referral_source && g.referral_source !== 'Lista Oficial Invitados' ? `<div class="guest-ref">${escapeHtml(g.referral_source)}</div>` : ''}
+        </td>
+        <td class="col-qty">
+          <span class="qty-pill ${qty > 1 ? 'qty-group' : ''}">${qty} ${qty > 1 ? 'PERS.' : 'PASE'}</span>
+        </td>
+        <td class="col-code">
+          <code>#${escapeHtml(g.ticket_code)}</code>
+        </td>
+        <td class="col-role">${escapeHtml(role)}</td>
+        <td class="col-contact">${escapeHtml(contactInfo)}</td>
+        <td class="col-sign">
+          ${alreadyIn ? `<span class="time-stamp">En sala (${checkin.time ? checkin.time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''})</span>` : '<span class="sign-blank"></span>'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const docHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Lista_Invitados_El_Quilombo_${now.toISOString().slice(0, 10)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 10mm 8mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0f172a;
+      background: #f1f5f9;
+      padding: 16px;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    /* Floating control bar (hidden when printing) */
+    .no-print-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #09061a;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .toolbar-title {
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-action-print {
+      background: #22c55e;
+      color: #052e16;
+      font-weight: 800;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+      transition: transform 0.1s ease;
+    }
+    .btn-action-print:hover {
+      background: #16a34a;
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .btn-action-close {
+      background: #334155;
+      color: #f1f5f9;
+      border: none;
+      padding: 9px 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .filter-select {
+      background: #1e1b4b;
+      color: #fff;
+      border: 1px solid #4338ca;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* Main printable paper container */
+    .paper-sheet {
+      background: #fff;
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    /* Sheet Header */
+    .sheet-header {
+      border-bottom: 2.5px solid #0f172a;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .event-title {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .event-subtitle {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .stats-ribbon {
+      display: flex;
+      gap: 8px;
+    }
+    .stat-pill {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 5px 12px;
+      border-radius: 6px;
+      text-align: center;
+      min-width: 75px;
+    }
+    .stat-pill .num {
+      font-size: 15px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .stat-pill .tag {
+      font-size: 8.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748b;
+    }
+
+    .instructions-strip {
+      background: #f8fafc;
+      border-left: 3.5px solid #0ea5e9;
+      padding: 6px 10px;
+      font-size: 9.5px;
+      color: #334155;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    thead {
+      display: table-header-group;
+    }
+    th {
+      background-color: #0f172a !important;
+      color: #fff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      padding: 6px 5px;
+      font-weight: 800;
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      border: 1px solid #0f172a;
+      text-align: left;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 4.5px 5px;
+      vertical-align: middle;
+    }
+    tr:nth-child(even) td {
+      background-color: #f8fafc;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    tr {
+      page-break-inside: avoid;
+    }
+
+    .col-check { width: 34px; text-align: center; }
+    .col-num { width: 28px; text-align: center; color: #64748b; font-weight: 600; font-size: 9.5px; }
+    .col-name { font-size: 10.5px; }
+    .guest-title { font-weight: 800; color: #0f172a; }
+    .guest-companions { font-size: 9px; color: #475569; font-style: italic; margin-top: 1px; }
+    .guest-ref { font-size: 8.5px; color: #94a3b8; }
+    
+    .col-qty { width: 62px; text-align: center; }
+    .qty-pill {
+      display: inline-block;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-weight: 800;
+      font-size: 9.5px;
+      background: #e2e8f0;
+      color: #0f172a;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .qty-group {
+      background: #fef08a;
+      color: #854d0e;
+      border: 1px solid #eab308;
+    }
+
+    .col-code { width: 88px; text-align: center; }
+    .col-code code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 700;
+      color: #0369a1;
+      font-size: 9.5px;
+    }
+
+    .col-role { width: 130px; font-size: 9px; color: #334155; }
+    .col-contact { width: 105px; font-size: 9px; color: #475569; }
+    .col-sign { width: 95px; text-align: center; }
+
+    .chk-box {
+      width: 17px;
+      height: 17px;
+      border: 1.8px solid #0f172a;
+      border-radius: 3px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 13px;
+      color: #16a34a;
+      background: #fff;
+    }
+    .sign-blank {
+      display: block;
+      border-bottom: 1px dashed #94a3b8;
+      width: 85%;
+      height: 10px;
+      margin: 0 auto;
+    }
+    .time-stamp {
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #16a34a;
+    }
+
+    .sheet-footer {
+      margin-top: 14px;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 6px;
+      display: flex;
+      justify-content: space-between;
+      color: #94a3b8;
+      font-size: 8.5px;
+    }
+
+    /* Print media styling */
+    @media print {
+      body {
+        background: #fff !important;
+        padding: 0 !important;
+      }
+      .no-print-toolbar {
+        display: none !important;
+      }
+      .paper-sheet {
+        box-shadow: none !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print-toolbar">
+    <div class="toolbar-title">
+      <span>🖨️</span>
+      <span>Lista Oficial de Invitados • El Quilombo (Rock &amp; Riff)</span>
+    </div>
+    <div class="toolbar-actions">
+      <select id="filterMode" class="filter-select" onchange="applyFilter(this.value)">
+        <option value="all">Ver Todos (${totalTickets} pases • ${totalHeadcount} pers.)</option>
+        <option value="pending">Solo Faltan por Ingresar (${pendingHeadcount} pers.)</option>
+        <option value="in">Solo en Sala (${insideHeadcount} pers.)</option>
+      </select>
+      <button type="button" class="btn-action-print" onclick="window.print()">
+        <span>🖨️</span>
+        <span>IMPRIMIR / PDF</span>
+      </button>
+      <button type="button" class="btn-action-close" onclick="window.close()">✕ Cerrar</button>
+    </div>
+  </div>
+
+  <div class="paper-sheet">
+    <header class="sheet-header">
+      <div>
+        <div class="event-title">EL QUILOMBO • ROCK &amp; RIFF</div>
+        <div class="event-subtitle">Lista Oficial de Invitados &amp; Pases de Cortesía • Viernes 09 de Octubre 2026 (Valencia)</div>
+      </div>
+      <div class="stats-ribbon">
+        <div class="stat-pill">
+          <div class="num" id="statPases">${totalTickets}</div>
+          <div class="tag">Pases VIP</div>
+        </div>
+        <div class="stat-pill">
+          <div class="num" id="statPersonas">${totalHeadcount}</div>
+          <div class="tag">Personas Total</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="instructions-strip">
+      <span>📋 <strong>Control en Puerta:</strong> Verificar identidad del titular y marcar casilla [ ✓ ] con bolígrafo al momento del ingreso.</span>
+      <span>Generado: ${dateStr} • ${timeStr}</span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="col-check">CHECK</th>
+          <th class="col-num">#</th>
+          <th>INVITADO / TITULAR</th>
+          <th class="col-qty">ENTRADAS</th>
+          <th class="col-code">CÓDIGO</th>
+          <th>ROL / DETALLE</th>
+          <th>DNI / CONTACTO</th>
+          <th class="col-sign">FIRMA / HORA</th>
+        </tr>
+      </thead>
+      <tbody id="guestsTableBody">
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <footer class="sheet-footer">
+      <span>El Quilombo • Control de Acceso &amp; Escáner QR • Rock &amp; Riff Live</span>
+      <span>Documento Oficial de Staff • Organizado Alfabéticamente</span>
+    </footer>
+  </div>
+
+  <script>
+    function applyFilter(mode) {
+      const rows = document.querySelectorAll('#guestsTableBody tr');
+      let visibleTickets = 0;
+      rows.forEach(r => {
+        const status = r.dataset.status;
+        if (mode === 'all') {
+          r.style.display = '';
+          visibleTickets++;
+        } else if (mode === 'pending' && status === 'pending') {
+          r.style.display = '';
+          visibleTickets++;
+        } else if (mode === 'in' && status === 'in') {
+          r.style.display = '';
+          visibleTickets++;
+        } else {
+          r.style.display = 'none';
+        }
+      });
+      document.getElementById('statPases').textContent = visibleTickets;
+    }
+
+    // Auto-trigger print prompt shortly after loading
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        window.print();
+      }, 400);
+    });
+  </script>
+</body>
+</html>`;
+
+  // Dual popup / iframe trigger
+  const printWindow = window.open("", "_blank");
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(docHtml);
+    printWindow.document.close();
+  } else {
+    // Fallback if popup blocked
+    let printFrame = document.getElementById("printFrame");
+    if (!printFrame) {
+      printFrame = document.createElement("iframe");
+      printFrame.id = "printFrame";
+      printFrame.style.position = "fixed";
+      printFrame.style.right = "0";
+      printFrame.style.bottom = "0";
+      printFrame.style.width = "0";
+      printFrame.style.height = "0";
+      printFrame.style.border = "0";
+      document.body.appendChild(printFrame);
+    }
+    printFrame.contentDocument.open();
+    printFrame.contentDocument.write(docHtml);
+    printFrame.contentDocument.close();
+    showToast("Generando hoja de impresión en segundo plano...", "info");
+    setTimeout(() => {
+      printFrame.contentWindow.focus();
+      printFrame.contentWindow.print();
+    }, 600);
+  }
+}
+
+window.exportGuestsPdf = exportGuestsPdf;
+
 
 // ==========================================
 // APP BOOTSTRAP
