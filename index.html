@@ -372,39 +372,6 @@
           <li>🔑 <strong>PIN de Administrador:</strong> 5401385</li>
         </ul>
       </div>
-      </div>
-    </div>
-
-    <!-- =======================================
-         TAB 4: SIMULADOR DE PRUEBAS & ESCENARIOS
-         ======================================= -->
-    <div id="tabSimulator" class="tab-pane">
-      <div class="scanner-card" style="padding: 1.25rem; margin-bottom: 1.25rem; border-color: var(--border-glow-cyan);">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <span style="font-size: 1.6rem;">🧪</span>
-            <div>
-              <h2 style="font-family: var(--font-title); font-size: 1.15rem; font-weight: 800; color: #fff;">
-                SIMULADOR DE ESCANEO EN VIVO
-              </h2>
-              <p style="font-size: 0.76rem; color: var(--text-muted);">
-                Probá el escáner con estos 5 escenarios antes de llegar al evento.
-              </p>
-            </div>
-          </div>
-          <button type="button" id="btnResetSimulations" class="btn-pill" style="border-color: var(--neon-cyan); color: var(--neon-cyan);">
-            🔄 Reiniciar Pruebas
-          </button>
-        </div>
-        <p style="font-size: 0.74rem; color: var(--text-subtle); margin-top: 0.65rem; background: rgba(0, 229, 255, 0.05); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid rgba(0, 229, 255, 0.15);">
-          💡 <strong>Cómo probar:</strong> Podés apuntar la cámara de tu teléfono móvil a cualquiera de estos códigos QR generados en pantalla, o presionar el botón <strong>"⚡ Probar Escaneo Directo"</strong> para simular la lectura inmediata en el mismo dispositivo.
-        </p>
-      </div>
-
-      <!-- Simulation Scenarios Container -->
-      <div id="simulationCardsContainer" style="display: flex; flex-direction: column; gap: 1rem;">
-        <!-- Injected dynamically by JavaScript with live QR canvases -->
-      </div>
     </div>
 
   </main>
@@ -425,10 +392,6 @@
       <button type="button" class="nav-tab-btn" data-tab="tabTaquilla">
         <span class="tab-icon">🎟️</span>
         <span>Taquilla</span>
-      </button>
-      <button type="button" class="nav-tab-btn" data-tab="tabSimulator">
-        <span class="tab-icon">🧪</span>
-        <span>Simulador</span>
       </button>
     </div>
   </nav>

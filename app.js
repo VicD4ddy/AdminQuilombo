@@ -336,10 +336,10 @@ async function fetchReservationsFromSupabase() {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
     const data = await res.json();
-    state.reservations = [...getSimulatedTickets(), ...data];
+    state.reservations = data.filter(r => !r.id?.startsWith("sim-") && !r.ticket_code?.includes("SIM") && !r.ticket_code?.includes("FAKE"));
 
     // Cache locally for offline reliability
-    localStorage.setItem("quilombo_cached_reservations", JSON.stringify(data));
+    localStorage.setItem("quilombo_cached_reservations", JSON.stringify(state.reservations));
     localStorage.setItem("quilombo_cache_time", Date.now().toString());
 
     if (syncPill) syncPill.className = "status-pill";
@@ -359,7 +359,7 @@ function loadOfflineCache() {
   try {
     const cached = localStorage.getItem("quilombo_cached_reservations");
     if (cached) {
-      state.reservations = [...getSimulatedTickets(), ...JSON.parse(cached)];
+      state.reservations = JSON.parse(cached).filter(r => !r.id?.startsWith("sim-") && !r.ticket_code?.includes("SIM") && !r.ticket_code?.includes("FAKE"));
       updateMetricsAndUI();
     }
   } catch (e) {
@@ -487,12 +487,6 @@ async function markCheckin(ticket, markAsPaid = false) {
 
   updateMetricsAndUI();
 
-  // If simulated ticket, update simulation state and skip remote DB patch
-  if (ticket.id?.startsWith("sim-")) {
-    updateSimulatedTicket(ticket);
-    return;
-  }
-
   // Send PATCH to Supabase in background
   const patchPayload = { meme_sticker_used: newMemeField };
   if (markAsPaid) patchPayload.is_paid = true;
@@ -527,12 +521,6 @@ async function undoCheckin(ticket) {
   state.recentCheckins = state.recentCheckins.filter(c => c.ticketId !== ticket.id);
 
   updateMetricsAndUI();
-
-  if (ticket.id?.startsWith("sim-")) {
-    updateSimulatedTicket(ticket);
-    showToast(`Se deshizo el ingreso de prueba #${ticket.ticket_code}`, "info");
-    return;
-  }
 
   try {
     await fetch(`${CONFIG.SUPABASE_URL}/reservations?id=eq.${ticket.id}`, {
@@ -1562,274 +1550,29 @@ function escapeHtml(str) {
 }
 
 // ==========================================
-// SIMULATOR & TEST SCENARIOS
-// ==========================================
-const SIMULATION_DEFAULTS = [
-  {
-    id: "sim-1",
-    ticket_code: "QLB-26-SIM1",
-    buyer_name: "Mateo Palacios (Trueno)",
-    buyer_dni: "V-29.845.101",
-    buyer_phone: "0412 1112233",
-    buyer_email: "trueno@quilombo.test",
-    tier_id: "general",
-    tier_name: "Pase General Oficial",
-    quantity: 1,
-    total_usd: 15,
-    total_ref_bs: 14616.30,
-    payment_method: "Pago Móvil",
-    favorite_artist: "Dance Crip / Trueno",
-    meme_sticker_used: "meme-trueno",
-    is_paid: true,
-    scenarioType: "valid",
-    badgeLabel: "🟢 1 Persona • Pagado",
-    badgeClass: "scenario-valid",
-    title: "1. Entrada Individual Pagada (Acceso Permitido)",
-    desc: "Simula el caso más común: asistente con 1 entrada general ya pagada."
-  },
-  {
-    id: "sim-2",
-    ticket_code: "QLB-26-SIM2",
-    buyer_name: "Julieta Cazzuchelli (Cazzu)",
-    buyer_dni: "V-30.112.540",
-    buyer_phone: "0424 9998877",
-    buyer_email: "cazzu@quilombo.test",
-    tier_id: "general",
-    tier_name: "Pase Preventa Oficial",
-    quantity: 3,
-    total_usd: 45,
-    total_ref_bs: 43848.90,
-    payment_method: "Pago Móvil",
-    favorite_artist: "Nada / Cazzu",
-    meme_sticker_used: "meme-cazzu",
-    is_paid: true,
-    scenarioType: "group",
-    badgeLabel: "🟢 3 Personas • Grupal",
-    badgeClass: "scenario-group",
-    title: "2. Entrada Grupal (3 Personas)",
-    desc: "Comprueba que la pantalla resalte '3 PERSONAS' para el personal de seguridad."
-  },
-  {
-    id: "sim-3",
-    ticket_code: "QLB-26-SIM3",
-    buyer_name: "Mauro Lombardo (Duki)",
-    buyer_dni: "V-28.774.920",
-    buyer_phone: "0414 5556677",
-    buyer_email: "duki@quilombo.test",
-    tier_id: "cash",
-    tier_name: "Pase General Oficial (Efectivo Puerta)",
-    quantity: 1,
-    total_usd: 15,
-    total_ref_bs: 14709.23,
-    payment_method: "Efectivo en Rock & Riff",
-    favorite_artist: "Goteo / Duki",
-    meme_sticker_used: "meme-duki",
-    is_paid: false,
-    scenarioType: "doorpay",
-    badgeLabel: "🟡 Cobrar $15 USD (Bs. 14.709,23) en Puerta",
-    badgeClass: "scenario-doorpay",
-    title: "3. Pago Pendiente en Puerta ($15 USD • Bs. 14.709,23)",
-    desc: "El usuario reservó para pagar en efectivo en taquilla. Permite probar el botón 'Registrar Pago y Dar Acceso'."
-  },
-  {
-    id: "sim-4",
-    ticket_code: "QLB-26-SIM4",
-    buyer_name: "Joaquín Cordovero (Seven Kayne)",
-    buyer_dni: "V-31.205.334",
-    buyer_phone: "0426 3334455",
-    buyer_email: "seven@quilombo.test",
-    tier_id: "general",
-    tier_name: "Pase General Oficial",
-    quantity: 1,
-    total_usd: 15,
-    total_ref_bs: 14616.30,
-    payment_method: "Pago Móvil",
-    favorite_artist: "Si te lastimé",
-    meme_sticker_used: `meme-seven|CHECKED_IN:${new Date(Date.now() - 25 * 60 * 1000).toISOString()}:Staff`,
-    is_paid: true,
-    scenarioType: "used",
-    badgeLabel: "🔴 Ya Utilizado (Duplicado)",
-    badgeClass: "scenario-used",
-    title: "4. Intento de Reingreso / Entrada Ya Utilizada",
-    desc: "Simula que alguien intenta reutilizar o compartir una captura de una entrada que ya ingresó hace 25 minutos."
-  },
-  {
-    id: "sim-5",
-    ticket_code: "FAKE-99-9999",
-    buyer_name: "Código No Registrado",
-    buyer_dni: "00000000",
-    buyer_phone: "",
-    buyer_email: "",
-    tier_id: "fake",
-    tier_name: "Código Desconocido",
-    quantity: 1,
-    total_usd: 0,
-    total_ref_bs: 0,
-    payment_method: "Desconocido",
-    favorite_artist: "",
-    meme_sticker_used: "",
-    is_paid: false,
-    scenarioType: "fake",
-    badgeLabel: "🚫 Inválido / Falso",
-    badgeClass: "scenario-fake",
-    title: "5. Código QR Inválido o Desconocido",
-    desc: "Simula el escaneo de un código que no pertenece al evento para probar el rechazo sonoro y visual."
-  },
-  {
-    id: "sim-6",
-    ticket_code: "QLB-26-VIP",
-    buyer_name: "Gonzalo Conde (Bizarrap)",
-    buyer_dni: "V-29.500.123",
-    buyer_phone: "0412 8889900",
-    buyer_email: "biza@quilombo.test",
-    tier_id: "courtesy",
-    tier_name: "Pase Invitado / Cortesía VIP",
-    quantity: 2,
-    total_usd: 0,
-    total_ref_bs: 0,
-    payment_method: "Cortesía / Invitado",
-    favorite_artist: "BZRP Music Sessions",
-    meme_sticker_used: "meme-biza",
-    is_paid: true,
-    scenarioType: "vip",
-    badgeLabel: "⭐ Cortesía VIP ($0 USD)",
-    badgeClass: "scenario-vip",
-    title: "6. Pase de Invitado / Cortesía VIP (2 Personas - $0 USD)",
-    desc: "Simula el escaneo de un invitado especial, prensa o artista con pase libre ($0 USD)."
-  }
-];
-
-function getSimulatedTickets() {
-  try {
-    const saved = localStorage.getItem("quilombo_simulated_tickets");
-    if (saved) return JSON.parse(saved);
-  } catch (e) {}
-  return JSON.parse(JSON.stringify(SIMULATION_DEFAULTS));
-}
-
-function updateSimulatedTicket(ticket) {
-  const current = getSimulatedTickets();
-  const idx = current.findIndex(s => s.id === ticket.id);
-  if (idx !== -1) {
-    current[idx] = { ...ticket };
-    localStorage.setItem("quilombo_simulated_tickets", JSON.stringify(current));
-    renderSimulationCards();
-  }
-}
-
-function resetSimulations() {
-  localStorage.setItem("quilombo_simulated_tickets", JSON.stringify(SIMULATION_DEFAULTS));
-  // remove simulation checkins from recent list
-  state.recentCheckins = state.recentCheckins.filter(c => !c.ticketId.startsWith("sim-"));
-  
-  // replace simulation tickets in memory
-  state.reservations = [
-    ...JSON.parse(JSON.stringify(SIMULATION_DEFAULTS)),
-    ...state.reservations.filter(r => !r.id.startsWith("sim-"))
-  ];
-
-  updateMetricsAndUI();
-  renderSimulationCards();
-  sounds.playSuccess();
-  showToast("Escenarios de prueba restaurados a su estado original.", "success");
-}
-
-function initSimulations() {
-  renderSimulationCards();
-
-  document.getElementById("btnResetSimulations")?.addEventListener("click", () => {
-    resetSimulations();
-  });
-}
-
-function renderSimulationCards() {
-  const container = document.getElementById("simulationCardsContainer");
-  if (!container) return;
-
-  const scenarios = getSimulatedTickets();
-
-  container.innerHTML = scenarios.map((s, idx) => {
-    const checkin = getCheckinData(s);
-    let currentStatusLabel = s.badgeLabel;
-    if (checkin.isCheckedIn && s.scenarioType !== 'used') {
-      currentStatusLabel = '🟢 YA INGRESÓ (Simulado)';
-    }
-
-    return `
-      <div class="sim-card ${s.badgeClass}">
-        <div class="sim-card-grid">
-          <div class="sim-qr-box">
-            <canvas id="qr-canvas-sim-${s.id}" class="sim-qr-canvas"></canvas>
-          </div>
-          <div class="sim-info-col">
-            <div class="sim-scenario-title">
-              <span>${escapeHtml(s.title)}</span>
-              <span class="badge ${s.is_paid ? 'badge-paid' : 'badge-pending'}" style="font-size: 0.68rem;">
-                ${currentStatusLabel}
-              </span>
-            </div>
-            <p style="font-size: 0.76rem; color: var(--text-subtle); margin: 0.2rem 0;">
-              ${escapeHtml(s.desc)}
-            </p>
-            <div class="sim-meta-list">
-              <div class="sim-meta-item">
-                <span>Código QR:</span>
-                <strong style="color: var(--neon-cyan); font-family: monospace;">#${s.ticket_code}</strong>
-              </div>
-              <div class="sim-meta-item">
-                <span>Titular:</span>
-                <strong>${escapeHtml(s.buyer_name)} (${s.buyer_dni || 'N/A'})</strong>
-              </div>
-              <div class="sim-meta-item">
-                <span>Entrada:</span>
-                <strong>${s.quantity}x ${escapeHtml(s.tier_name)} • $${s.total_usd} USD</strong>
-              </div>
-            </div>
-            <div class="sim-actions-row">
-              <button 
-                type="button" 
-                class="btn-action-primary" 
-                style="padding: 0.5rem 0.85rem; font-size: 0.8rem;" 
-                onclick="handleDecodedQr('${s.ticket_code}')"
-              >
-                <span>⚡ Probar Escaneo Directo (1-Tap)</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Draw QR codes on canvases using QRious
-  setTimeout(() => {
-    scenarios.forEach(s => {
-      const canvas = document.getElementById(`qr-canvas-sim-${s.id}`);
-      if (canvas && typeof QRious !== "undefined") {
-        try {
-          new QRious({
-            element: canvas,
-            value: s.ticket_code,
-            size: 140,
-            level: 'M'
-          });
-        } catch (e) {
-          console.warn("QR generation error:", e);
-        }
-      }
-    });
-  }, 50);
-}
-
-// ==========================================
 // APP BOOTSTRAP
 // ==========================================
 function bootstrapApp() {
+  // Purge any lingering simulated/test tickets from browser localStorage
+  try {
+    localStorage.removeItem("quilombo_simulated_tickets");
+    const localCheckins = JSON.parse(localStorage.getItem("quilombo_local_checkins") || "{}");
+    let modified = false;
+    for (const k of Object.keys(localCheckins)) {
+      if (k.startsWith("sim-") || k.includes("FAKE") || k.includes("SIM")) {
+        delete localCheckins[k];
+        modified = true;
+      }
+    }
+    if (modified) {
+      localStorage.setItem("quilombo_local_checkins", JSON.stringify(localCheckins));
+    }
+  } catch (e) {}
+
   initNavigation();
   initSearch();
   initQrScanner();
   initExpressCheckin();
-  initSimulations();
   fetchReservationsFromSupabase();
 
   // Periodic polling to keep multiple doors / phones in sync
