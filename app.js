@@ -1005,7 +1005,10 @@ function renderAttendeesList() {
             ${isCourtesy && r.favorite_artist ? `<span style="color: #c084fc;">⭐ ${escapeHtml(r.favorite_artist)}</span>` : ''}
           </div>
         </div>
-        <div>
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <button type="button" class="btn-row-qr" onclick="event.stopPropagation(); openTicketById('${r.id}');" title="Ver código QR de ${escapeHtml(r.buyer_name)}">
+            <span>📱</span> <span>QR</span>
+          </button>
           ${badgeHtml}
         </div>
       </div>
@@ -1542,6 +1545,9 @@ function openTicketVerificationModal(ticket) {
   if (elAmount) elAmount.textContent = `$${ticket.total_usd || 0} USD (Ref: Bs. ${formatBs(ticketRefBs)})`;
   if (elArtist) elArtist.textContent = ticket.favorite_artist || 'Sin tema especificado';
 
+  // Render Official QR Code for this ticket
+  renderTicketQrCode(ticket);
+
   // State Evaluation & Banner Design
   banner.className = "modal-status-banner";
 
@@ -1672,6 +1678,108 @@ function closeTicketModal() {
   const modalOverlay = document.getElementById("ticketModalOverlay");
   modalOverlay.classList.add("hidden");
   state.currentModalTicket = null;
+}
+
+/**
+ * Generates and displays the QR code for a ticket using QRious
+ */
+function renderTicketQrCode(ticket) {
+  const canvas = document.getElementById("modalQrCanvas");
+  const codeBadge = document.getElementById("modalQrBadgeTxt");
+  if (!canvas || !ticket) return;
+
+  const code = ticket.ticket_code || "";
+  if (codeBadge) codeBadge.textContent = `#${code}`;
+
+  try {
+    if (typeof QRious !== "undefined") {
+      new QRious({
+        element: canvas,
+        value: code,
+        size: 180,
+        level: "H",
+        background: "#ffffff",
+        foreground: "#000000"
+      });
+    }
+  } catch (err) {
+    console.warn("Error generando QR:", err);
+  }
+}
+
+/**
+ * Opens fullscreen high-contrast QR lightbox
+ */
+function openFullscreenQr(ticket) {
+  const currentTicket = ticket || state.currentModalTicket;
+  if (!currentTicket) return;
+
+  const overlay = document.getElementById("qrFullscreenOverlay");
+  const canvas = document.getElementById("qrFullscreenCanvas");
+  const nameEl = document.getElementById("qrFullscreenName");
+  const codeEl = document.getElementById("qrFullscreenCode");
+  const qtyEl = document.getElementById("qrFullscreenQty");
+  const badgeEl = document.getElementById("qrFullscreenBadge");
+
+  if (nameEl) nameEl.textContent = currentTicket.buyer_name || "Sin Nombre";
+  if (codeEl) codeEl.textContent = `#${currentTicket.ticket_code}`;
+  const qty = Number(currentTicket.quantity) || 1;
+  if (qtyEl) qtyEl.textContent = `${qty} ${qty > 1 ? 'PERSONAS' : 'PERSONA'}`;
+
+  const isCourtesy = isTicketCourtesy(currentTicket);
+  const isPaid = !!currentTicket.is_paid;
+  if (badgeEl) {
+    if (isCourtesy) {
+      badgeEl.className = "badge badge-vip";
+      badgeEl.textContent = "⭐ INVITADO ($0)";
+    } else if (isPaid) {
+      badgeEl.className = "badge badge-paid";
+      badgeEl.textContent = "✓ PAGADO";
+    } else {
+      badgeEl.className = "badge badge-pending";
+      badgeEl.textContent = "💵 COBRAR EN PUERTA";
+    }
+  }
+
+  try {
+    if (typeof QRious !== "undefined" && canvas) {
+      new QRious({
+        element: canvas,
+        value: currentTicket.ticket_code,
+        size: 260,
+        level: "H",
+        background: "#ffffff",
+        foreground: "#000000"
+      });
+    }
+  } catch (e) {
+    console.warn("Fullscreen QRious error:", e);
+  }
+
+  overlay?.classList.remove("hidden");
+}
+
+function closeFullscreenQr() {
+  document.getElementById("qrFullscreenOverlay")?.classList.add("hidden");
+}
+
+function copyTicketCodeToClipboard(code) {
+  const targetCode = code || state.currentModalTicket?.ticket_code;
+  if (!targetCode) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(targetCode).then(() => {
+      showToast(`Código #${targetCode} copiado al portapapeles`, "success");
+      const copyTxt = document.getElementById("btnCopyTicketCodeTxt");
+      if (copyTxt) {
+        copyTxt.textContent = "¡Copiado! ✓";
+        setTimeout(() => { copyTxt.textContent = "Copiar Código"; }, 2000);
+      }
+    }).catch(() => {
+      showToast(`Código: #${targetCode}`, "info");
+    });
+  } else {
+    showToast(`Código: #${targetCode}`, "info");
+  }
 }
 
 async function confirmCheckinAction(markAsPaid = false) {
@@ -1903,7 +2011,26 @@ function initNavigation() {
 
   // Close modal with Escape key
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeTicketModal();
+    if (e.key === "Escape") {
+      const qrOverlay = document.getElementById("qrFullscreenOverlay");
+      if (qrOverlay && !qrOverlay.classList.contains("hidden")) {
+        closeFullscreenQr();
+      } else {
+        closeTicketModal();
+      }
+    }
+  });
+
+  // QR Visualizer & Fullscreen Lightbox interactions
+  document.getElementById("modalQrCard")?.addEventListener("click", () => openFullscreenQr());
+  document.getElementById("btnZoomQrModal")?.addEventListener("click", () => openFullscreenQr());
+  document.getElementById("btnCopyTicketCode")?.addEventListener("click", () => copyTicketCodeToClipboard());
+  document.getElementById("btnQrFullscreenClose")?.addEventListener("click", closeFullscreenQr);
+  document.getElementById("btnQrFullscreenDismiss")?.addEventListener("click", closeFullscreenQr);
+
+  const qrFullscreenOverlay = document.getElementById("qrFullscreenOverlay");
+  qrFullscreenOverlay?.addEventListener("click", (e) => {
+    if (e.target === qrFullscreenOverlay) closeFullscreenQr();
   });
 
   // Export / Print guests list

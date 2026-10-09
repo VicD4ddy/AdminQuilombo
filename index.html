@@ -426,6 +426,24 @@
           <div class="qty-highlight-desc" id="modalTierName">PASE GENERAL OFICIAL</div>
         </div>
 
+        <!-- QR Code Visualizer Section -->
+        <div class="modal-qr-section" id="modalQrSection">
+          <div class="modal-qr-card" id="modalQrCard" title="Toca para ampliar el código QR">
+            <canvas id="modalQrCanvas" class="modal-qr-canvas" width="180" height="180"></canvas>
+            <div class="modal-qr-code-pill">
+              <span id="modalQrBadgeTxt">#QLB-26-0000</span>
+            </div>
+          </div>
+          <div class="modal-qr-actions-row">
+            <button type="button" class="btn-qr-pill" id="btnZoomQrModal">
+              <span>🔍</span> <span>Ampliar QR</span>
+            </button>
+            <button type="button" class="btn-qr-pill" id="btnCopyTicketCode">
+              <span>📋</span> <span id="btnCopyTicketCodeTxt">Copiar Código</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Ticket Details -->
         <div class="detail-rows">
           <div class="detail-row">
@@ -471,6 +489,36 @@
     </div>
   </div>
 
-  <script src="./app.js?v=2.6"></script>
+  <!-- =========================================
+       FULLSCREEN QR LIGHTBOX MODAL
+       ========================================= -->
+  <div id="qrFullscreenOverlay" class="qr-fullscreen-overlay hidden" role="dialog" aria-modal="true">
+    <div class="qr-fullscreen-dialog">
+      <button type="button" id="btnQrFullscreenClose" class="qr-fullscreen-close" aria-label="Cerrar vista QR">✕</button>
+      <div class="qr-fullscreen-card">
+        <div class="qr-fullscreen-header">
+          <span class="qr-fullscreen-brand">EL QUILOMBO • ROCK &amp; RIFF</span>
+          <h3 id="qrFullscreenName" class="qr-fullscreen-name">Nombre Asistente</h3>
+          <div class="qr-fullscreen-badges">
+            <span id="qrFullscreenQty" class="qr-fullscreen-qty">1 PERSONA</span>
+            <span id="qrFullscreenBadge" class="badge badge-paid">✓ PAGADO</span>
+          </div>
+        </div>
+
+        <div class="qr-fullscreen-canvas-wrap">
+          <canvas id="qrFullscreenCanvas" class="qr-fullscreen-canvas" width="280" height="280"></canvas>
+        </div>
+
+        <div class="qr-fullscreen-code" id="qrFullscreenCode">#QLB-26-0000</div>
+        <p class="qr-fullscreen-hint">Escaneable directamente con cualquier lector o cámara</p>
+
+        <button type="button" id="btnQrFullscreenDismiss" class="btn-qr-fullscreen-close">
+          ✕ Cerrar y Volver
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js?v=2.7"></script>
 </body>
 </html>

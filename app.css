@@ -1270,6 +1270,9 @@ mark.search-highlight {
 .modal-dialog {
   width: 100%;
   max-width: 480px;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(165deg, rgba(26, 17, 56, 0.98) 0%, rgba(12, 8, 30, 0.98) 100%);
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -1363,6 +1366,259 @@ mark.search-highlight {
 
 .modal-body {
   padding: 1.25rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* QR Code Visualizer Section in Modal */
+.modal-qr-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.15rem;
+}
+
+.modal-qr-card {
+  background: #ffffff;
+  padding: 0.85rem;
+  border-radius: 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 25px rgba(0, 229, 255, 0.28);
+  border: 2.5px solid var(--neon-cyan);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-qr-card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.65), 0 0 32px rgba(0, 229, 255, 0.5);
+}
+
+.modal-qr-canvas {
+  width: 175px;
+  height: 175px;
+  display: block;
+  image-rendering: pixelated;
+  border-radius: 6px;
+}
+
+.modal-qr-code-pill {
+  margin-top: 0.45rem;
+  background: #0d0826;
+  border: 1px solid var(--border-glow-cyan);
+  color: var(--neon-cyan);
+  font-family: monospace;
+  font-size: 0.88rem;
+  font-weight: 800;
+  padding: 0.22rem 0.75rem;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+}
+
+.modal-qr-actions-row {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 0.6rem;
+  width: 100%;
+  justify-content: center;
+}
+
+.btn-qr-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.45rem 0.95rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.2s ease;
+}
+
+.btn-qr-pill:hover {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: var(--neon-purple);
+  color: #fff;
+}
+
+/* Row QR Button for Attendees List */
+.btn-row-qr {
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  color: var(--neon-cyan);
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.2s ease;
+}
+
+.btn-row-qr:hover {
+  background: rgba(0, 229, 255, 0.28);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+  transform: scale(1.05);
+}
+
+/* Fullscreen QR Lightbox Modal */
+.qr-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(4, 2, 12, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.qr-fullscreen-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.qr-fullscreen-dialog {
+  width: 100%;
+  max-width: 390px;
+  position: relative;
+  animation: modalScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.qr-fullscreen-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #000;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  transition: all 0.2s;
+}
+
+.qr-fullscreen-close:hover {
+  background: #fff;
+  transform: scale(1.1);
+}
+
+.qr-fullscreen-card {
+  background: #ffffff;
+  color: #080518;
+  border-radius: 24px;
+  padding: 1.75rem 1.25rem;
+  text-align: center;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.95), 0 0 35px rgba(0, 229, 255, 0.3);
+  border: 3px solid var(--neon-cyan);
+}
+
+.qr-fullscreen-brand {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #6b21a8;
+  text-transform: uppercase;
+  display: block;
+}
+
+.qr-fullscreen-name {
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 900;
+  color: #080518;
+  margin: 0.35rem 0 0.5rem;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.qr-fullscreen-badges {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.qr-fullscreen-qty {
+  font-size: 0.75rem;
+  font-weight: 800;
+  background: #f3e8ff;
+  color: #7e22ce;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+}
+
+.qr-fullscreen-canvas-wrap {
+  background: #ffffff;
+  padding: 0.75rem;
+  display: inline-block;
+  border-radius: 16px;
+  border: 2px dashed rgba(0, 0, 0, 0.15);
+  margin-bottom: 0.75rem;
+}
+
+.qr-fullscreen-canvas {
+  width: 250px;
+  height: 250px;
+  max-width: 70vw;
+  max-height: 70vw;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.qr-fullscreen-code {
+  font-family: monospace;
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #080518;
+  letter-spacing: 1px;
+  margin-bottom: 0.35rem;
+}
+
+.qr-fullscreen-hint {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.btn-qr-fullscreen-close {
+  width: 100%;
+  padding: 0.85rem;
+  background: #080518;
+  color: #ffffff;
+  border: none;
+  border-radius: 14px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-qr-fullscreen-close:hover {
+  background: #1e1144;
 }
 
 /* Quantity Highlight Badge */
