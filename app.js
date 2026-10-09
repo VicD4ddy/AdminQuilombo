@@ -1333,16 +1333,19 @@ async function startCameraScanning() {
     await state.html5QrCode.start(
       cameraId,
       {
-        fps: 20,
+        fps: 25,
         qrbox: function(viewfinderWidth, viewfinderHeight) {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const boxSize = Math.floor(minEdge * 0.72);
+          const boxSize = Math.floor(minEdge * 0.82);
           return {
-            width: Math.max(200, Math.min(boxSize, 280)),
-            height: Math.max(200, Math.min(boxSize, 280))
+            width: Math.max(220, Math.min(boxSize, 340)),
+            height: Math.max(220, Math.min(boxSize, 340))
           };
         },
-        aspectRatio: 1.0
+        aspectRatio: 1.0,
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
+        }
       },
       (decodedText, decodedResult) => {
         handleDecodedQr(decodedText);
@@ -1423,56 +1426,91 @@ function handleDecodedQr(decodedText) {
   const modal = document.getElementById("ticketModalOverlay");
   if (!modal.classList.contains("hidden")) return;
 
+  const rawText = (decodedText || "").toString().trim();
+  if (!rawText) return;
+
   sounds.playSuccess();
-  console.log("[QR Decoded Raw]:", decodedText);
+  console.log("[QR Decoded Raw]:", rawText);
 
   // Extract Ticket Code or DNI from decoded text
-  // Formats can be:
-  // 1) QLB-26-6260 or #QLB-26-6260
+  // Formats supported:
+  // 1) QLB-26-7491, #QLB-26-7491, QLB-VIP-1112, etc.
   // 2) DEL_xyz_QLB-26-XXXX
-  // 3) https://elquilomboo.netlify.app/?ticket=QLB-26-XXXX or similar
-  // 4) JSON object
-  // 5) DNI number (e.g. 32027336)
+  // 3) https://elquilombo.club/?ticket=QLB-26-XXXX or .../ticket/QLB-26-XXXX
+  // 4) JSON object { ticketCode: "...", buyerDni: "..." }
+  // 5) DNI number (e.g. 32138182 or V-32138182)
   
   let targetCode = null;
   let targetDni = null;
 
-  // Check regex for QLB code (e.g. QLB-26-XXXX or QLB-VIP-XXXX)
-  const qlbMatch = decodedText.match(/(?:DEL_[a-z0-9]+_)?QLB-(?:\d{2}|VIP)-\d{4}/i);
-  if (qlbMatch) {
-    targetCode = qlbMatch[0].toUpperCase();
-  } else {
-    // Check if JSON
+  // 1. Check if raw text contains standard QLB code pattern (e.g. QLB-26-7491 or QLB-VIP-1112)
+  const qlbMatch = rawText.match(/(?:#)?(?:DEL_[a-z0-9]+_)?(QLB-[A-Z0-9]+-[A-Z0-9]+)/i);
+  if (qlbMatch && qlbMatch[1]) {
+    targetCode = qlbMatch[1].toUpperCase();
+  }
+
+  // 2. Check if it's a URL with parameters or path
+  if (!targetCode && (rawText.startsWith("http://") || rawText.startsWith("https://"))) {
     try {
-      const json = JSON.parse(decodedText);
+      const urlObj = new URL(rawText);
+      const urlTicket = urlObj.searchParams.get("ticket") || urlObj.searchParams.get("code");
+      const urlDni = urlObj.searchParams.get("dni") || urlObj.searchParams.get("cedula");
+      if (urlTicket) targetCode = urlTicket.replace(/^#/, "").toUpperCase();
+      if (urlDni) targetDni = urlDni.replace(/[^0-9]/g, "");
+
+      // Or pathname: /ticket/QLB-...
+      const pathMatch = urlObj.pathname.match(/(QLB-[A-Z0-9]+-[A-Z0-9]+)/i);
+      if (pathMatch && !targetCode) targetCode = pathMatch[1].toUpperCase();
+    } catch (e) {}
+  }
+
+  // 3. Check if JSON object
+  if (!targetCode) {
+    try {
+      const json = JSON.parse(rawText);
       if (json.ticketCode || json.ticket_code) {
-        targetCode = (json.ticketCode || json.ticket_code).toUpperCase();
+        targetCode = (json.ticketCode || json.ticket_code).toString().replace(/^#/, "").toUpperCase();
       }
-      if (json.buyerDni || json.dni) {
-        targetDni = (json.buyerDni || json.dni).toString().trim();
+      if (json.buyerDni || json.dni || json.cedula) {
+        targetDni = (json.buyerDni || json.dni || json.cedula).toString().replace(/[^0-9]/g, "");
       }
-    } catch {
-      // Direct raw text
-      targetCode = decodedText.trim().toUpperCase();
+    } catch {}
+  }
+
+  // 4. Check if raw text is a DNI (e.g. 6 to 10 digits)
+  if (!targetCode && !targetDni) {
+    const pureDigits = rawText.replace(/[^0-9]/g, "");
+    if (/^\d{6,10}$/.test(pureDigits)) {
+      targetDni = pureDigits;
     }
   }
 
-  // Lookup in database
+  // 5. Fallback raw text clean
+  if (!targetCode && !targetDni) {
+    targetCode = rawText.replace(/^#/, "").toUpperCase();
+  }
+
+  // Lookup in database (state.reservations)
   let found = null;
+
+  // Search by Ticket Code
   if (targetCode) {
-    found = state.reservations.find(r => 
-      (r.ticket_code || "").toUpperCase() === targetCode ||
-      (r.ticket_code || "").toUpperCase() === `#${targetCode}`
-    );
+    const cleanCode = targetCode.replace(/^#/, "").toUpperCase();
+    found = state.reservations.find(r => {
+      const rCode = (r.ticket_code || "").replace(/^#/, "").toUpperCase();
+      return rCode === cleanCode;
+    });
   }
 
+  // Search by DNI if not found
   if (!found && targetDni) {
+    const cleanTargetDni = targetDni.replace(/[^0-9]/g, "");
     found = state.reservations.find(r => 
-      (r.buyer_dni || "").replace(/[^0-9]/g, "") === targetDni.replace(/[^0-9]/g, "")
+      (r.buyer_dni || "").replace(/[^0-9]/g, "") === cleanTargetDni
     );
   }
 
-  // If still not found, check partial code or DNI digits
+  // Partial or fuzzy fallback for ticket code (e.g. last 4 digits)
   if (!found && targetCode) {
     const cleanDigits = targetCode.replace(/[^0-9]/g, "");
     if (cleanDigits.length >= 4) {
@@ -1487,7 +1525,7 @@ function handleDecodedQr(decodedText) {
     openTicketVerificationModal(found);
   } else {
     sounds.playError();
-    showToast(`Código escaneado no encontrado: "${decodedText.substring(0, 24)}"`, "error");
+    showToast(`Código escaneado no encontrado: "${rawText.substring(0, 24)}"`, "error");
   }
 }
 
@@ -1688,16 +1726,17 @@ function renderTicketQrCode(ticket) {
   const codeBadge = document.getElementById("modalQrBadgeTxt");
   if (!canvas || !ticket) return;
 
-  const code = ticket.ticket_code || "";
-  if (codeBadge) codeBadge.textContent = `#${code}`;
+  const rawCode = (ticket.ticket_code || "").toString().replace(/^#/, "").trim();
+  if (codeBadge) codeBadge.textContent = `#${rawCode}`;
 
   try {
     if (typeof QRious !== "undefined") {
       new QRious({
         element: canvas,
-        value: code,
-        size: 180,
-        level: "H",
+        value: rawCode,
+        size: 240,
+        padding: 14,
+        level: "M",
         background: "#ffffff",
         foreground: "#000000"
       });
@@ -1721,8 +1760,9 @@ function openFullscreenQr(ticket) {
   const qtyEl = document.getElementById("qrFullscreenQty");
   const badgeEl = document.getElementById("qrFullscreenBadge");
 
+  const rawCode = (currentTicket.ticket_code || "").toString().replace(/^#/, "").trim();
   if (nameEl) nameEl.textContent = currentTicket.buyer_name || "Sin Nombre";
-  if (codeEl) codeEl.textContent = `#${currentTicket.ticket_code}`;
+  if (codeEl) codeEl.textContent = `#${rawCode}`;
   const qty = Number(currentTicket.quantity) || 1;
   if (qtyEl) qtyEl.textContent = `${qty} ${qty > 1 ? 'PERSONAS' : 'PERSONA'}`;
 
@@ -1745,9 +1785,10 @@ function openFullscreenQr(ticket) {
     if (typeof QRious !== "undefined" && canvas) {
       new QRious({
         element: canvas,
-        value: currentTicket.ticket_code,
-        size: 260,
-        level: "H",
+        value: rawCode,
+        size: 320,
+        padding: 16,
+        level: "M",
         background: "#ffffff",
         foreground: "#000000"
       });

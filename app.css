@@ -2173,3 +2173,184 @@ mark.search-highlight {
   flex-wrap: wrap;
 }
 
+/* ========================================================
+   FULLSCREEN QR LIGHTBOX (High Contrast & Rapid Scanning)
+   ======================================================== */
+.qr-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(4, 3, 12, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.qr-fullscreen-overlay.hidden {
+  display: none !important;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.qr-fullscreen-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  animation: qrZoomIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes qrZoomIn {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.qr-fullscreen-close {
+  position: absolute;
+  top: -14px;
+  right: -10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #130e2e;
+  border: 1.5px solid var(--neon-cyan);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6), 0 0 16px rgba(0, 229, 255, 0.4);
+  transition: all 0.2s ease;
+}
+
+.qr-fullscreen-close:hover {
+  background: var(--neon-red);
+  border-color: #fff;
+  transform: rotate(90deg) scale(1.1);
+}
+
+.qr-fullscreen-card {
+  background: linear-gradient(160deg, #150f38 0%, #0d0824 100%);
+  border: 2px solid var(--neon-cyan);
+  border-radius: 26px;
+  padding: 1.6rem 1.4rem;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 229, 255, 0.22);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qr-fullscreen-header {
+  width: 100%;
+  margin-bottom: 0.6rem;
+}
+
+.qr-fullscreen-brand {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--neon-cyan);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.qr-fullscreen-name {
+  font-family: var(--font-title);
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #ffffff;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.2;
+}
+
+.qr-fullscreen-badges {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.qr-fullscreen-qty {
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+}
+
+/* Pure high-contrast white canvas card with quiet zone */
+.qr-fullscreen-canvas-wrap {
+  background: #ffffff;
+  padding: 1rem;
+  border-radius: 20px;
+  margin: 1.1rem auto 0.9rem auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), 0 0 35px rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-fullscreen-canvas {
+  width: 250px;
+  height: 250px;
+  max-width: 72vw;
+  max-height: 72vw;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.qr-fullscreen-code {
+  font-family: monospace;
+  font-size: 1.45rem;
+  font-weight: 900;
+  color: var(--neon-yellow);
+  letter-spacing: 1.5px;
+  text-shadow: 0 0 14px rgba(255, 230, 0, 0.45);
+  margin-bottom: 0.25rem;
+}
+
+.qr-fullscreen-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0 0 1.2rem 0;
+}
+
+.btn-qr-fullscreen-close {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.8rem;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-qr-fullscreen-close:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: var(--neon-red);
+  color: #fff;
+}
+
+
