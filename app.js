@@ -1653,10 +1653,22 @@ function exportGuestsPdf() {
       companionsNote = parts.slice(1).join("(").replace(/\)$/, "").trim();
     }
 
+    // Generate individual checkboxes for each invited person in this ticket
+    let checkBoxesHtml = '<div class="checks-grid">';
+    for (let c = 1; c <= qty; c++) {
+      checkBoxesHtml += `
+        <div class="chk-item" title="Invitado ${c} de ${qty}">
+          <div class="chk-box" onclick="this.textContent = (this.textContent === '✓' ? '' : '✓')">${alreadyIn ? '✓' : ''}</div>
+          ${qty > 1 ? `<span class="chk-num">${c}</span>` : ''}
+        </div>
+      `;
+    }
+    checkBoxesHtml += '</div>';
+
     return `
       <tr class="${alreadyIn ? 'row-in' : 'row-pending'}" data-status="${alreadyIn ? 'in' : 'pending'}">
         <td class="col-check">
-          <div class="chk-box">${alreadyIn ? '✓' : ''}</div>
+          ${checkBoxesHtml}
         </td>
         <td class="col-num">${idx + 1}</td>
         <td class="col-name">
@@ -1913,9 +1925,24 @@ function exportGuestsPdf() {
     .col-contact { width: 105px; font-size: 9px; color: #475569; }
     .col-sign { width: 95px; text-align: center; }
 
+    .checks-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      align-items: center;
+      justify-content: center;
+      max-width: 140px;
+      margin: 0 auto;
+    }
+    .chk-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+    }
     .chk-box {
-      width: 17px;
-      height: 17px;
+      width: 18px;
+      height: 18px;
       border: 1.8px solid #0f172a;
       border-radius: 3px;
       margin: 0 auto;
@@ -1923,9 +1950,26 @@ function exportGuestsPdf() {
       align-items: center;
       justify-content: center;
       font-weight: 900;
-      font-size: 13px;
+      font-size: 12px;
       color: #16a34a;
       background: #fff;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chk-box:hover {
+      border-color: #3b82f6;
+    }
+    .chk-num {
+      font-size: 8px;
+      font-weight: 700;
+      color: #64748b;
+      line-height: 1;
+    }
+    .col-check { 
+      min-width: 60px; 
+      max-width: 145px; 
+      text-align: center; 
+      padding: 4px 5px; 
     }
     .sign-blank {
       display: block;
@@ -2006,14 +2050,14 @@ function exportGuestsPdf() {
     </header>
 
     <div class="instructions-strip">
-      <span>📋 <strong>Control en Puerta:</strong> Verificar identidad del titular y marcar casilla [ ✓ ] con bolígrafo al momento del ingreso.</span>
+      <span>📋 <strong>Control en Puerta:</strong> Cada invitado asignado tiene su casilla individual [ ✓ ] para marcar con bolígrafo al ingresar.</span>
       <span>Generado: ${dateStr} • ${timeStr}</span>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th class="col-check">CHECK</th>
+          <th class="col-check">CHECKS (${totalHeadcount} ENTRADAS)</th>
           <th class="col-num">#</th>
           <th>INVITADO / TITULAR</th>
           <th class="col-qty">ENTRADAS</th>
