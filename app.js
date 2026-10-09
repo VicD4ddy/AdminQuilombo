@@ -707,10 +707,16 @@ function renderAttendeesList() {
     const isCourtesy = isTicketCourtesy(r);
     const isDoorPay = (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash") && !isPaid;
 
+    // REGLE DE NEGOCIO: Los invitados SOLO aparecen en la pestaña '⭐ Invitados' (vip)
+    if (filter === "vip") {
+      if (!isCourtesy) return false;
+    } else {
+      if (isCourtesy) return false;
+    }
+
     if (filter === "inside" && !checkin.isCheckedIn) return false;
     if (filter === "pending" && checkin.isCheckedIn) return false;
     if (filter === "door_pay" && !isDoorPay) return false;
-    if (filter === "vip" && !isCourtesy) return false;
     if (filter === "paid" && !isPaid) return false;
 
     if (searchQuery) {
@@ -725,26 +731,53 @@ function renderAttendeesList() {
     return true;
   });
 
-  // Update counts in filter chips
-  const total = state.reservations.filter(r => r.tier_id !== "deleted").length;
-  const inside = state.reservations.filter(r => r.tier_id !== "deleted" && getCheckinData(r).isCheckedIn).length;
-  const pending = total - inside;
-  const doorPay = state.reservations.filter(r => r.tier_id !== "deleted" && !r.is_paid && (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash")).length;
-  const vipCount = state.reservations.filter(r => r.tier_id !== "deleted" && isTicketCourtesy(r)).length;
-  const paid = state.reservations.filter(r => r.tier_id !== "deleted" && r.is_paid).length;
+  // Update counts in filter chips:
+  // Asistentes regulares (excluyen invitados de cortesía)
+  const regularTickets = state.reservations.filter(r => isValidProductionTicket(r) && !isTicketCourtesy(r));
+  const totalRegular = regularTickets.length;
+  const insideRegular = regularTickets.filter(r => getCheckinData(r).isCheckedIn).length;
+  const pendingRegular = totalRegular - insideRegular;
+  const doorPayRegular = regularTickets.filter(r => !r.is_paid && (r.payment_method?.toLowerCase().includes("efectivo") || r.tier_id === "cash")).length;
+  const paidRegular = regularTickets.filter(r => r.is_paid).length;
 
-  document.getElementById("countFilterAll").textContent = total;
-  document.getElementById("countFilterInside").textContent = inside;
-  document.getElementById("countFilterPending").textContent = pending;
-  document.getElementById("countFilterDoorPay").textContent = doorPay;
+  // Invitados de cortesía VIP ($0)
+  const vipCount = state.reservations.filter(r => isValidProductionTicket(r) && isTicketCourtesy(r)).length;
+
+  document.getElementById("countFilterAll").textContent = totalRegular;
+  document.getElementById("countFilterInside").textContent = insideRegular;
+  document.getElementById("countFilterPending").textContent = pendingRegular;
+  document.getElementById("countFilterDoorPay").textContent = doorPayRegular;
   const countVipEl = document.getElementById("countFilterVip");
   if (countVipEl) countVipEl.textContent = vipCount;
-  document.getElementById("countFilterPaid").textContent = paid;
+  document.getElementById("countFilterPaid").textContent = paidRegular;
 
   if (filtered.length === 0) {
+    let vipMatchHint = "";
+    if (searchQuery && filter !== "vip") {
+      const vipMatches = state.reservations.filter(r => {
+        if (!isValidProductionTicket(r) || !isTicketCourtesy(r)) return false;
+        const matchName = normalizeSearch(r.buyer_name).includes(searchQuery);
+        const matchCode = normalizeSearch(r.ticket_code).replace(/[\-]/g, "").includes(searchQuery.replace(/[\-]/g, ""));
+        return matchName || matchCode;
+      });
+      if (vipMatches.length > 0) {
+        vipMatchHint = `
+          <div style="margin-top: 1rem;">
+            <p style="color: var(--neon-cyan); font-size: 0.85rem; margin-bottom: 0.6rem;">
+              ⭐ Se encontraron <strong>${vipMatches.length}</strong> invitado(s) en la lista VIP.
+            </p>
+            <button type="button" class="btn-pill" onclick="document.querySelector('[data-filter=\\'vip\\']').click();" style="background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 700; cursor: pointer; border: none;">
+              ⭐ Ver en Invitados (${vipMatches.length})
+            </button>
+          </div>
+        `;
+      }
+    }
+
     container.innerHTML = `
       <div style="text-align: center; padding: 2.5rem; color: var(--text-subtle);">
         No se encontraron asistentes con el filtro actual.
+        ${vipMatchHint}
       </div>
     `;
     return;
